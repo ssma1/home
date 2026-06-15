@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ССБА — Управление Контентом (Секретно)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Твоя конфигурация Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
+            authDomain: "ssba-58900.firebaseapp.com",
+            databaseURL: "https://ssba-58900-default-rtdb.firebaseio.com",
+            projectId: "ssba-58900",
+            storageBucket: "ssba-58900.firebasestorage.app",
+            messagingSenderId: "615638249829",
+            appId: "1:615638249829:web:a68cd961fa79ebc7ef718c",
+            measurementId: "G-ZY8PQ2DXE3"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const SECRET_PASSWORD = "ssba161antifa";
+        const cloudName = "dkxz31t7k"; 
+        const uploadPreset = "ml_default";
+
+        let currentEditDocId = "";
+        let currentEditCollection = "";
+        let currentEditMediaUrl = "";
+
+        // Удаление публикации
+        window.deletePost = async function(collectionName, docId) {
+            if (!confirm("Вы уверены, что хотите полностью удалить эту публикацию?")) return;
+            
+            const pass = prompt("Введите секретный пароль для подтверждения удаления:");
+            if (pass !== SECRET_PASSWORD) {
+                alert("Неверный пароль! В доступе отказано.");
+                return;
+            }
+
+            try {
+                await deleteDoc(doc(db, collectionName, docId));
+                alert("Успешно удалено!");
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка при удалении: " + e.message);
+            }
+        };
+
+        // Открытие модалки редактирования
+        window.openEditModal = function(collectionName, docId, currentTitle, currentText, currentMediaUrl) {
+            currentEditDocId = docId;
+            currentEditCollection = collectionName;
+            currentEditMediaUrl = currentMediaUrl || "";
+
+            document.getElementById("edit-title").value = currentTitle || "";
+            document.getElementById("edit-text").value = currentText || "";
+            document.getElementById("edit-upload-status").innerText = currentMediaUrl ? "Файл прикреплен" : "Файла нет";
+            document.getElementById("edit-upload-status").style.color = "#8a8a8f";
+
+            const fileInput = document.getElementById("edit-hidden-file-input");
+            if (collectionName === 'posts' || collectionName === 'photo') fileInput.accept = "image/*";
+            else if (collectionName === 'video') fileInput.accept = "video/*";
+            else if (collectionName === 'music') fileInput.accept = "audio/*";
+            else if (collectionName === 'books') fileInput.accept = ".pdf,.epub,.fb2,.txt";
+
+            document.getElementById("edit-modal").style.display = "flex";
+        };
+
+        window.closeEditModal = function() {
+            document.getElementById("edit-modal").style.display = "none";
+        };
+
+        window.triggerEditUpload = () => document.getElementById("edit-hidden-file-input").click();
+
+        // Загрузка нового файла в Cloudinary
+        window.handleEditFileChange = async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('upload_preset', uploadPreset);
+
+            const status = document.getElementById("edit-upload-status");
+            const saveBtn = document.getElementById("save-btn");
+
+            try {
+                saveBtn.disabled = true;
+                status.innerText = "Замена файла в облако...";
+                status.style.color = "#ffaa00";
+
+                let resourceType = "image";
+                if (currentEditCollection === "video" || currentEditCollection === "music") resourceType = "video";
+                if (currentEditCollection === "books") resourceType = "raw";
+
+                const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error("Не удалось загрузить файл в Cloudinary.");
+
+                const data = await response.json();
+                currentEditMediaUrl = data.secure_url;
+
+                status.innerText = "Новый файл успешно загружен!";
+                status.style.color = "#00ff00";
+            } catch (error) {
+                alert("Ошибка файла: " + error.message);
+                status.innerText = "Ошибка загрузки";
+                status.style.color = "#ff0000";
+            } finally {
+                saveBtn.disabled = false;
+            }
+        };
+
+        // Сохранение изменений в базу данных
+        window.saveChanges = async function() {
+            const pass = prompt("Введите секретный пароль для сохранения изменений:");
+            if (pass !== SECRET_PASSWORD) {
+                alert("Неверный пароль! Сохранение отменено.");
+                return;
+            }
+
+            const updatedTitle = document.getElementById("edit-title").value.trim();
+            const updatedText = document.getElementById("edit-text").value.trim();
+
+            try {
+                // Передаем secretPassword внутри объекта обновления, чтобы правила пропустили запрос!
+                await updateDoc(doc(db, currentEditCollection, currentEditDocId), {
+                    title: updatedTitle,
+                    text: updatedText,
+                    mediaUrl: currentEditMediaUrl,
+                    secretPassword: SECRET_PASSWORD 
+                });
+                alert("Изменения успешно сохранены!");
+                closeEditModal();
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка сохранения: " + e.message);
+            }
+        };
+
+        // Вывод контента
+        function loadAdminSection(collectionName, containerId, renderMediaFunction) {
+            const container = document.getElementById(containerId);
+            const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
+
+            onSnapshot(q, (snapshot) => {
+                if (snapshot.empty) {
+                    container.innerHTML = `<div class="card"><p style="text-align:center; color:#666;">Нет публикаций.</p></div>`;
+                    return;
+                }
+                container.innerHTML = "";
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const id = doc.id;
+                    
+                    const safeTitle = (data.title || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    const safeText = (data.text || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    const safeUrl = (data.mediaUrl || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
+
+                    container.innerHTML += `
+                        <div class="card">
+                            ${renderMediaFunction(data)}
+                            <div class="admin-actions">
+                                <button class="action-btn edit-btn" onclick="openEditModal('${collectionName}', '${id}', '${safeTitle}', '${safeText}', '${safeUrl}')">Изменить</button>
+                                <button class="action-btn delete-btn" onclick="deletePost('${collectionName}', '${id}')">Удалить</button>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadAdminSection("posts", "posts-container", (data) => `
+                <h3>${data.title || "[Без заголовка]"}</h3>
+                <p>${data.text}</p>
+                ${data.mediaUrl ? `<img src="${data.mediaUrl}" class="loaded-media" style="margin-top:12px;">` : ''}
+            `);
+
+            loadAdminSection("photo", "photo-container", (data) => `
+                <h3 class="media-title-center">${data.title}</h3>
+                <img src="${data.mediaUrl}" class="loaded-media">
+                <p class="media-text-bottom">${data.text}</p>
+            `);
+
+            loadAdminSection("video", "video-container", (data) => `
+                <h3 class="media-title-center">${data.title}</h3>
+                <video src="${data.mediaUrl}" controls class="loaded-media"></video>
+                <p class="media-text-bottom">${data.text}</p>
+            `);
+
+            loadAdminSection("music", "music-container", (data) => `
+                <h3 class="media-title-center">${data.title}</h3>
+                <audio src="${data.mediaUrl}" controls class="audio-player-custom"></audio>
+                <p class="media-text-bottom">${data.text}</p>
+            `);
+
+            loadAdminSection("books", "books-container", (data) => `
+                <h3>${data.title}</h3>
+                <p style="margin-bottom:15px;">${data.text}</p>
+                <a href="${data.mediaUrl}" target="_blank" class="btn">Открыть файл</a>
+            `);
+        });
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; }
+        
+        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; }
+        .logo h1 {
+            font-family: 'Montserrat', sans-serif; font-size: 3.5rem; font-weight: 900;
+            color: #EBEBEB; text-transform: uppercase; text-shadow: 4px 4px 0px #dd0000; margin-bottom: 10px;
+        }
+        .secret-tag { color: #dd0000; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; font-size: 0.9rem; margin-bottom: 20px; }
+        
+        .red-bar { width: 100%; height: 5px; background-color: #dd0000; }
+        .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; padding: 50px 20px; }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        section { margin-bottom: 60px; }
+        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
+        
+        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; display: flex; flex-direction: column; justify-content: space-between; }
+        .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 12px; color: #dd0000; }
+        .card p { color: #bbb; font-size: 0.95rem; white-space: pre-wrap; }
+        
+        .loaded-media { width: 100%; max-height: 250px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; }
+        .audio-player-custom { width: 100%; margin-bottom: 15px; }
+        .btn { display: inline-block; padding: 8px 15px; background-color: #333; color: #fff; text-decoration: none; font-weight: bold; text-transform: uppercase; font-size: 0.8rem; text-align: center;}
+
+        .admin-actions { display: flex; gap: 10px; margin-top: 20px; border-top: 1px solid #2d2d30; padding-top: 15px; }
+        .action-btn { flex: 1; padding: 12px; font-weight: bold; text-transform: uppercase; font-size: 0.85rem; cursor: pointer; border: none; font-family: 'Arial', sans-serif; }
+        .edit-btn { background-color: #252528; color: #ffffff; border: 1px solid #444; }
+        .edit-btn:hover { border-color: #00ff00; color: #00ff00; }
+        .delete-btn { background-color: #2a1212; color: #ff5555; border: 1px solid #5a1a1a; }
+        .delete-btn:hover { background-color: #dd0000; color: #000000; }
+
+        .modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.85); z-index: 100; display: none; justify-content: center; align-items: center; padding: 20px; }
+        .modal-box { background-color: #1a1a1c; border: 1px solid #2d2d30; width: 100%; max-width: 550px; padding: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.7); }
+        .modal-box h2 { font-family: 'Montserrat', sans-serif; color: #dd0000; text-transform: uppercase; margin-bottom: 20px; font-size: 1.5rem; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 0.8rem; color: #8a8a8f; text-transform: uppercase; margin-bottom: 5px; font-weight: bold; }
+        .modal-box input, .modal-box textarea { width: 100%; background-color: #121214; border: 1px solid #2d2d30; color: #fff; padding: 12px; font-size: 1rem; }
+        .modal-box input:focus, .modal-box textarea:focus { outline: none; border-color: #dd0000; }
+        .modal-box textarea { resize: vertical; min-height: 120px; }
+        
+        .modal-buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .modal-btn { flex: 1; padding: 14px; font-weight: bold; text-transform: uppercase; cursor: pointer; border: none; }
+        .save-btn { background-color: #dd0000; color: #000000; font-family: 'Montserrat', sans-serif; font-weight: 900; }
+        .cancel-btn { background-color: #252528; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            <h1>ССБА</h1>
+        </div>
+        <div class="secret-tag">Панель Модерации // Режим Админа</div>
+    </header>
+
+    <div class="red-bar"></div>
+
+    <div class="main-content-wrapper">
+        <div class="container">
+            
+            <section id="posts">
+                <h2 class="section-title">Посты</h2>
+                <div class="grid" id="posts-container"></div>
+            </section>
+
+            <section id="photo">
+                <h2 class="section-title">Фотогалерея</h2>
+                <div class="grid" id="photo-container"></div>
+            </section>
+
+            <section id="video">
+                <h2 class="section-title">Видеоархив</h2>
+                <div class="grid" id="video-container"></div>
+            </section>
+
+            <section id="music">
+                <h2 class="section-title">Музыка</h2>
+                <div class="grid" id="music-container"></div>
+            </section>
+
+            <section id="books">
+                <h2 class="section-title">Библиотека</h2>
+                <div class="grid" id="books-container"></div>
+            </section>
+
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-modal">
+        <div class="modal-box">
+            <h2>Редактировать публикацию</h2>
+            
+            <div class="form-group">
+                <label>Заголовок</label>
+                <input type="text" id="edit-title">
+            </div>
+
+            <div class="form-group">
+                <label>Текст / Описание</label>
+                <textarea id="edit-text"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Файл публикации (Фото/Видео/Аудио/Книга)</label>
+                <input type="file" id="edit-hidden-file-input" style="display: none;" onchange="handleEditFileChange(event)">
+                <button type="button" class="action-btn edit-btn" style="width:100%; text-align:center;" onclick="triggerEditUpload()">Загрузить и заменить файл</button>
+                <div id="edit-upload-status" style="margin-top:5px; font-size:0.85rem; font-style:italic;"></div>
+            </div>
+
+            <div class="modal-buttons">
+                <button type="button" class="modal-btn save-btn" id="save-btn" onclick="saveChanges()">СОХРАНИТЬ</button>
+                <button type="button" class="modal-btn cancel-btn" onclick="closeEditModal()">ОТМЕНА</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
