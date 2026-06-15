@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ССБА — Панель Управления</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Твоя конфигурация Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
+            authDomain: "ssba-58900.firebaseapp.com",
+            databaseURL: "https://ssba-58900-default-rtdb.firebaseio.com",
+            projectId: "ssba-58900",
+            storageBucket: "ssba-58900.firebasestorage.app",
+            messagingSenderId: "615638249829",
+            appId: "1:615638249829:web:a68cd961fa79ebc7ef718c",
+            measurementId: "G-ZY8PQ2DXE3"
+        };
+
+        // Инициализация Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let uploadedMediaUrl = "";
+        const cloudName = "dkxz31t7k"; 
+        const uploadPreset = "ml_default"; 
+
+        const fileInput = document.getElementById('hidden-file-input');
+        const uploadBtn = document.getElementById('upload-btn');
+        const uploadStatus = document.getElementById('upload-status');
+        const submitBtn = document.getElementById('submit-btn');
+        const mediaLabel = document.getElementById('media-label');
+
+        // Вызов скрытого инпута
+        uploadBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Фоновая загрузка в Cloudinary
+        fileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('upload_preset', uploadPreset);
+
+            try {
+                uploadBtn.disabled = true;
+                submitBtn.disabled = true;
+                uploadStatus.innerText = "Отправка файла в облако...";
+                uploadStatus.style.color = "#ffaa00";
+
+                const currentSection = document.getElementById('section-select').value;
+                
+                // Настройка типов ресурсов
+                let resourceType = "image";
+                if (currentSection === "video") resourceType = "video";
+                if (currentSection === "music") resourceType = "video"; 
+                if (currentSection === "books") resourceType = "raw";   
+
+                const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error("Не удалось загрузить файл.");
+                }
+
+                const data = await response.json();
+                uploadedMediaUrl = data.secure_url; 
+
+                uploadStatus.innerText = "Файл успешно загружен и готов!";
+                uploadStatus.style.color = "#00ff00";
+
+            } catch (error) {
+                console.error(error);
+                alert("Ошибка при фоновой загрузке: " + error.message);
+                uploadStatus.innerText = "Ошибка загрузки";
+                uploadStatus.style.color = "#ff0000";
+                uploadedMediaUrl = "";
+            } finally {
+                uploadBtn.disabled = false;
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Умное переключение интерфейса под разделы
+        document.getElementById('section-select').addEventListener('change', (e) => {
+            const titleInput = document.getElementById('post-title');
+            
+            // Настройка фильтров и текста под текущий выбор
+            if (e.target.value === 'posts') {
+                fileInput.accept = "image/*";
+                uploadBtn.innerText = "Выбрать фото для поста";
+                mediaLabel.innerText = "Прикрепить фото к посту (необязательно)";
+                titleInput.placeholder = "Заголовок поста (необязательно)";
+            } else if (e.target.value === 'photo') {
+                fileInput.accept = "image/*";
+                uploadBtn.innerText = "Открыть Галерею";
+                mediaLabel.innerText = "Медиафайл (обязательно)";
+                titleInput.placeholder = "Введите заголовок медиа (обязательно)";
+            } else if (e.target.value === 'video') {
+                fileInput.accept = "video/*";
+                uploadBtn.innerText = "Выбрать Видео";
+                mediaLabel.innerText = "Медиафайл (обязательно)";
+                titleInput.placeholder = "Введите заголовок медиа (обязательно)";
+            } else if (e.target.value === 'music') {
+                fileInput.accept = "audio/*";
+                uploadBtn.innerText = "Выбрать Аудио";
+                mediaLabel.innerText = "Медиафайл (обязательно)";
+                titleInput.placeholder = "Введите заголовок медиа (обязательно)";
+            } else if (e.target.value === 'books') {
+                fileInput.accept = ".pdf,.epub,.fb2,.txt";
+                uploadBtn.innerText = "Выбрать Книгу (PDF, EPUB...)";
+                mediaLabel.innerText = "Прикрепить файл (обязательно)";
+                titleInput.placeholder = "Введите заголовок медиа (обязательно)";
+            }
+            
+            // Сброс временных данных
+            uploadedMediaUrl = "";
+            fileInput.value = "";
+            uploadStatus.innerText = "Файл не выбран";
+            uploadStatus.style.color = "#8a8a8f";
+        });
+
+        // Отправка формы в Firestore
+        document.getElementById('add-post-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const section = document.getElementById('section-select').value;
+            const title = document.getElementById('post-title').value.trim();
+            const text = document.getElementById('post-text').value.trim();
+
+            // Проверки на заполненность полей
+            if (section !== 'posts' && !title) {
+                alert("Заголовок обязателен для этого раздела!");
+                return;
+            }
+            if (!text) {
+                alert("Пожалуйста, введите текст описания!");
+                return;
+            }
+            // Важно: для обычных постов картинка теперь НЕ обязательна
+            if (section !== 'posts' && !uploadedMediaUrl) {
+                alert("Вы не выбрали или не дождались полной загрузки файла!");
+                return;
+            }
+
+            try {
+                submitBtn.disabled = true;
+                submitBtn.innerText = "ПУБЛИКАЦИЯ...";
+
+                await addDoc(collection(db, section), {
+                    title: title,
+                    text: text,
+                    mediaUrl: uploadedMediaUrl, // Передастся ссылка, либо пустая строка, если фото не прикрепляли
+                    createdAt: serverTimestamp() 
+                });
+
+                alert("Успешно опубликовано в раздел: " + section);
+                
+                document.getElementById('add-post-form').reset();
+                uploadedMediaUrl = "";
+                fileInput.value = "";
+                uploadStatus.innerText = "Файл не выбран";
+                uploadStatus.style.color = "#8a8a8f";
+                
+                // Возвращаем дефолтный текст кнопки
+                if(section === 'posts') {
+                    uploadBtn.innerText = "Выбрать фото для поста";
+                    mediaLabel.innerText = "Прикрепить фото к посту (необязательно)";
+                }
+
+            } catch (error) {
+                console.error("Ошибка Firestore: ", error);
+                alert("Ошибка при сохранении на сервер: " + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "ОПУБЛИКОВАТЬ";
+            }
+        });
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif;
+            display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px;
+        }
+        .admin-box {
+            background-color: #1a1a1c; border: 1px solid #2d2d30; width: 100%; max-width: 600px;
+            padding: 40px 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        h1 {
+            font-family: 'Montserrat', sans-serif; font-size: 2rem; text-transform: uppercase;
+            color: #dd0000; text-align: center; margin-bottom: 30px; letter-spacing: 1px;
+        }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block; font-weight: bold; text-transform: uppercase; font-size: 0.85rem;
+            color: #8a8a8f; margin-bottom: 8px; letter-spacing: 0.5px;
+        }
+        select, input[type="text"], textarea {
+            width: 100%; background-color: #121214; border: 1px solid #2d2d30; color: #ffffff;
+            padding: 12px 15px; font-size: 1rem; transition: border-color 0.2s;
+        }
+        select:focus, input[type="text"]:focus, textarea:focus { outline: none; border-color: #dd0000; }
+        textarea { resize: vertical; min-height: 140px; }
+        .upload-trigger-btn {
+            display: inline-block; background-color: #252528; border: 1px dashed #444; color: #ffffff;
+            padding: 12px 20px; cursor: pointer; font-weight: bold; text-transform: uppercase;
+            font-size: 0.9rem; transition: all 0.2s;
+        }
+        .upload-trigger-btn:hover { border-color: #dd0000; background-color: #1a1a1c; }
+        .upload-trigger-btn:disabled { background-color: #121214; border-color: #2d2d30; color: #555; cursor: not-allowed; }
+        .status-text { margin-top: 8px; font-size: 0.85rem; color: #8a8a8f; font-style: italic; }
+        .submit-btn {
+            width: 100%; background-color: #dd0000; color: #000000; border: none; padding: 16px;
+            font-family: 'Montserrat', sans-serif; font-size: 1.1rem; font-weight: 900;
+            text-transform: uppercase; cursor: pointer; letter-spacing: 1px; transition: background-color 0.2s; margin-top: 10px;
+        }
+        .submit-btn:hover { background-color: #ff1a1a; }
+        .submit-btn:disabled { background-color: #5a0000; color: #8a8a8f; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div class="admin-box">
+        <h1>Панель публикации ССБА</h1>
+        
+        <form id="add-post-form">
+            <div class="form-group">
+                <label for="section-select">Выберите раздел сайта</label>
+                <select id="section-select">
+                    <option value="posts">Посты (Текст)</option>
+                    <option value="photo">Фотогалерея (Фото + Текст)</option>
+                    <option value="video">Видеоархив (Видео + Текст)</option>
+                    <option value="music">Музыка (Аудио + Текст)</option>
+                    <option value="books">Библиотека (Книги + Описание)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="post-title">Заголовок</label>
+                <input type="text" id="post-title" placeholder="Заголовок поста (необязательно)">
+            </div>
+
+            <div class="form-group" id="media-upload-block">
+                <label id="media-label">Прикрепить фото к посту (необязательно)</label>
+                <input type="file" id="hidden-file-input" accept="image/*" style="display: none;">
+                <button type="button" class="upload-trigger-btn" id="upload-btn">Выбрать фото для поста</button>
+                <div class="status-text" id="upload-status">Файл не выбран</div>
+            </div>
+
+            <div class="form-group">
+                <label for="post-text">Текст публикации / Описание</label>
+                <textarea id="post-text" placeholder="Введите основной текст или описание..."></textarea>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submit-btn">ОПУБЛИКОВАТЬ</button>
+        </form>
+    </div>
+
+</body>
+</html>
