@@ -6,7 +6,7 @@
     <title>ССБА — Панель Управления</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -36,6 +36,20 @@
         const imgCodesContainer = document.getElementById('img-codes-container');
         const previewContainer = document.getElementById('preview-container');
         const submitBtn = document.getElementById('submit-btn');
+        const postTextarea = document.getElementById('post-text');
+
+        // Функция для быстрой вставки тегов шрифтов вокруг выделенного текста
+        window.insertFontTag = function(fontType) {
+            const start = postTextarea.selectionStart;
+            const end = postTextarea.selectionEnd;
+            const text = postTextarea.value;
+            const selectedText = text.substring(start, end);
+            
+            const replacement = `[font=${fontType}]${selectedText || 'текст'}[/font]`;
+            postTextarea.value = text.substring(0, start) + replacement + text.substring(end);
+            postTextarea.focus();
+            postTextarea.setSelectionRange(start + replacement.length, start + replacement.length);
+        };
 
         uploadBtn.addEventListener('click', () => fileInput.click());
 
@@ -45,7 +59,7 @@
 
             uploadedMediaUrls = []; 
             imgCodesContainer.innerHTML = "";
-            previewContainer.innerHTML = ""; // Очищаем старые превью
+            previewContainer.innerHTML = ""; 
             uploadBtn.disabled = true;
             submitBtn.disabled = true;
 
@@ -71,11 +85,8 @@
                     const data = await response.json();
                     uploadedMediaUrls.push(data.secure_url);
 
-                    // Отрисовываем превью сразу по мере загрузки (только для картинок)
                     if (currentSection === 'posts' || currentSection === 'photo') {
                         const imgNum = uploadedMediaUrls.length;
-                        
-                        // Создаем контейнер для миниатюры
                         const item = document.createElement('div');
                         item.className = 'preview-item';
                         item.innerHTML = `
@@ -86,10 +97,9 @@
                     }
                 }
 
-                uploadStatus.innerText = `Загружено файлов: ${uploadedMediaUrls.length}. Кликните на код, чтобы скопировать его в буфер обмена:`;
+                uploadStatus.innerText = `Загружено файлов: ${uploadedMediaUrls.length}. Кликните на код для копирования:`;
                 uploadStatus.style.color = "#00ff00";
 
-                // Генерируем текстовые коды для быстрой вставки
                 if (currentSection === 'posts' || currentSection === 'photo') {
                     uploadedMediaUrls.forEach((url, index) => {
                         const code = `[img${index+1}]`;
@@ -137,7 +147,7 @@
             const text = document.getElementById('post-text').value.trim();
 
             if (section !== 'posts' && !title) return alert("Заголовок обязателен!");
-            if (!text) return alert("Введите text публикации!");
+            if (!text) return alert("Введите текст публикации!");
 
             try {
                 submitBtn.disabled = true;
@@ -180,34 +190,18 @@
         .upload-trigger-btn { display: inline-block; background-color: #252528; border: 1px dashed #444; color: #ffffff; padding: 12px 20px; cursor: pointer; font-weight: bold; text-transform: uppercase; font-size: 0.9rem; }
         .status-text { margin-top: 8px; font-size: 0.85rem; color: #8a8a8f; font-style: italic; margin-bottom: 5px; }
         
-        /* Стили для бейджиков с кодами */
         .img-codes-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
-        .img-code-badge { background-color: #252528; color: #ffaa00; border: 1px solid #ffaa00; font-family: monospace; font-weight: bold; padding: 6px 10px; cursor: pointer; font-size: 0.95rem; transition: 0.2s; }
-        .img-code-badge:hover { background-color: #ffaa00; color: #000; }
+        .img-code-badge { background-color: #252528; color: #ffaa00; border: 1px solid #ffaa00; font-family: monospace; font-weight: bold; padding: 6px 10px; cursor: pointer; font-size: 0.95rem; }
         
-        /* СЕТКА ПРЕВЬЮ С ЦИФРАМИ */
         .preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 12px; margin-top: 10px; }
         .preview-item { position: relative; width: 80px; height: 80px; border: 1px solid #444; background-color: #121214; overflow: hidden; }
         .preview-item img { width: 100%; height: 100%; object-fit: cover; }
-        
-        /* Индикатор-цифра поверх фото */
-        .preview-badge { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
-            background: rgba(0, 0, 0, 0.4); /* Затемнение фона, чтобы цифру было видно на любой фотке */
-            color: #ffffff; 
-            font-family: 'Montserrat', sans-serif; 
-            font-size: 1.6rem; 
-            font-weight: 900; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            text-shadow: 2px 2px 4px #000000, -2px -2px 4px #000000;
-            pointer-events: none; /* Чтобы не мешало кликам, если они понадобятся */
-        }
+        .preview-badge { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.4); color: #ffffff; font-family: 'Montserrat', sans-serif; font-size: 1.6rem; font-weight: 900; display: flex; justify-content: center; align-items: center; text-shadow: 2px 2px 4px #000000, -2px -2px 4px #000000; pointer-events: none; }
+
+        /* ПАНЕЛЬ ВЫБОРА ШРИФТОВ */
+        .font-toolbar { display: flex; gap: 8px; background-color: #121214; border: 1px solid #2d2d30; border-bottom: none; padding: 8px; }
+        .font-btn { background-color: #252528; border: 1px solid #444; color: #fff; padding: 6px 12px; cursor: pointer; font-size: 0.85rem; font-weight: bold; text-transform: uppercase; }
+        .font-btn:hover { background-color: #dd0000; color: #000; border-color: #dd0000; }
 
         .submit-btn { width: 100%; background-color: #dd0000; color: #000000; border: none; padding: 16px; font-family: 'Montserrat', sans-serif; font-size: 1.1rem; font-weight: 900; text-transform: uppercase; cursor: pointer; margin-top: 10px; }
         .submit-btn:disabled { background-color: #5a0000; color: #8a8a8f; cursor: not-allowed; }
@@ -236,16 +230,18 @@
                 <input type="file" id="hidden-file-input" accept="image/*" multiple style="display: none;">
                 <button type="button" class="upload-trigger-btn" id="upload-btn">Выбрать изображения (Можно несколько)</button>
                 <div class="status-text" id="upload-status">Файлы не выбраны</div>
-                
-                <!-- Список кодов для клика и копирования -->
                 <div class="img-codes-list" id="img-codes-container"></div>
-                
-                <!-- Визуальные картинки с цифрами сверху -->
                 <div class="preview-grid" id="preview-container"></div>
             </div>
             <div class="form-group">
-                <label for="post-text">Текст (Используйте [img1], [img2] внутри текста для расстановки фото)</label>
-                <textarea id="post-text" placeholder="Пример: Текст до фото...&#10;[img1]&#10;Текст после фото..."></textarea>
+                <label for="post-text">Текст публикации</label>
+                <!-- Панель инструментов для смены шрифтов -->
+                <div class="font-toolbar">
+                    <button type="button" class="font-btn" onclick="insertFontTag('word')" style="font-family:'Times New Roman'; text-transform:none;">Текст Word</button>
+                    <button type="button" class="font-btn" onclick="insertFontTag('modern')" style="font-family:'Montserrat'; font-size:0.75rem;">MODERN ВЫДЕЛЕНИЕ</button>
+                    <button type="button" class="font-btn" onclick="insertFontTag('mono')" style="font-family:monospace; text-transform:none;">Печатный (Mono)</button>
+                </div>
+                <textarea id="post-text" placeholder="Выделите текст и нажмите кнопку шрифта выше, либо вставьте картинку через [img1]..."></textarea>
             </div>
             <button type="submit" class="submit-btn" id="submit-btn">ОПУБЛИКОВАТЬ</button>
         </form>
