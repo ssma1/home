@@ -6,7 +6,7 @@
     <title>ССБА — Официальный сайт</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -26,12 +26,20 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Функция парсинга текста и расстановки изображений в нужные места
-        window.parseTextWithImages = function(text, mediaUrls, fallbackUrl) {
+        // Функция обработки текста: парсит и картинки, и кастомные шрифты
+        window.parseTextWithImagesAndFonts = function(text, mediaUrls, fallbackUrl) {
             let urls = mediaUrls && mediaUrls.length > 0 ? [...mediaUrls] : (fallbackUrl ? [fallbackUrl] : []);
             let htmlText = text || "";
 
-            // Заменяем все [img1], [img2] и т.д. на реальные теги картинок
+            // Экранируем HTML во избежание багов, но сохраняем переносы строк
+            htmlText = htmlText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+            // Обработка тегов изменения шрифтов
+            htmlText = htmlText.replace(/\[font=word\]([\s\S]*?)\[\/font\]/g, '<span class="f-word">$1</span>');
+            htmlText = htmlText.replace(/\[font=modern\]([\s\S]*?)\[\/font\]/g, '<span class="f-modern">$1</span>');
+            htmlText = htmlText.replace(/\[font=mono\]([\s\S]*?)\[\/font\]/g, '<span class="f-mono">$1</span>');
+
+            // Заменяем коды [img1], [img2] на реальные картинки
             let usedIndexes = new Set();
             htmlText = htmlText.replace(/\[img(\d+)\]/g, (match, num) => {
                 const idx = parseInt(num) - 1;
@@ -39,10 +47,10 @@
                     usedIndexes.add(idx);
                     return `<img src="${urls[idx]}" class="inline-post-img" alt="Фото">`;
                 }
-                return ""; // Если такого индекса нет, убираем код
+                return "";
             });
 
-            // Если какие-то фото загружены, но коды не написаны в тексте, кидаем их наверх
+            // Запасной вариант: если фото загружено, но код в тексте не прописан — выводим сверху
             let topImagesHtml = "";
             urls.forEach((url, idx) => {
                 if (!usedIndexes.has(idx) && text && !text.includes(`[img${idx+1}]`)) {
@@ -50,7 +58,7 @@
                 }
             });
 
-            return topImagesHtml + `<p class="word-text">${htmlText}</p>`;
+            return topImagesHtml + `<div class="word-text">${htmlText}</div>`;
         };
 
         function loadSectionData(collectionName, containerId, renderFunction) {
@@ -70,54 +78,49 @@
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-            // 1. Посты
             loadSectionData("posts", "posts-container", (data) => `
                 <div class="card">
                     <h3>${data.title || "[Без заголовка]"}</h3>
                     <div class="scroll-content">
-                        ${parseTextWithImages(data.text, data.mediaUrls, data.mediaUrl)}
+                        ${parseTextWithImagesAndFonts(data.text, data.mediaUrls, data.mediaUrl)}
                     </div>
                 </div>
             `);
 
-            // 2. Фотогалерея
             loadSectionData("photo", "photo-container", (data) => `
                 <div class="card">
                     <h3>${data.title}</h3>
                     <div class="scroll-content">
-                        ${parseTextWithImages(data.text, data.mediaUrls, data.mediaUrl)}
+                        ${parseTextWithImagesAndFonts(data.text, data.mediaUrls, data.mediaUrl)}
                     </div>
                 </div>
             `);
 
-            // 3. Видеоархив
             loadSectionData("video", "video-container", (data) => `
                 <div class="card">
                     <h3>${data.title}</h3>
                     <div class="scroll-content">
                         <video src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls class="loaded-video-audio"></video>
-                        <p class="word-text">${data.text || ""}</p>
+                        <div class="word-text">${data.text || ""}</div>
                     </div>
                 </div>
             `);
 
-            // 4. Музыка
             loadSectionData("music", "music-container", (data) => `
                 <div class="card">
                     <h3>${data.title}</h3>
                     <div class="scroll-content">
                         <audio src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls style="width:100%; margin-bottom:10px;"></audio>
-                        <p class="word-text">${data.text || ""}</p>
+                        <div class="word-text">${data.text || ""}</div>
                     </div>
                 </div>
             `);
 
-            // 5. Библиотека
             loadSectionData("books", "books-container", (data) => `
                 <div class="card">
                     <h3>${data.title}</h3>
                     <div class="scroll-content">
-                        <p class="word-text" style="margin-bottom: 15px;">${data.text}</p>
+                        <div class="word-text" style="margin-bottom: 15px;">${data.text}</div>
                         <a href="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" target="_blank" class="btn">Скачать / Читать</a>
                     </div>
                 </div>
@@ -129,13 +132,14 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; }
 
+        /* ВОЗВРАЩЕННЫЙ КРАСИВЫЙ ЛОГОТИП С СЕКЦИЕЙ HEADER */
         header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; }
-        .logo h1 { font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; color: #EBEBEB; text-transform: uppercase; text-shadow: 4px 4px 0px #dd0000; }
+        .logo h1 { font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; color: #EBEBEB; text-transform: uppercase; text-shadow: 4px 4px 0px #dd0000; letter-spacing: 2px; }
         .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; text-align: center; margin-bottom: 35px; }
 
         nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; max-width: 650px; margin: 0 auto 20px auto; }
-        nav a { color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; }
-        nav a:hover { background-color: #dd0000; color: #000000; font-weight: bold; }
+        nav a { color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; font-weight: bold; }
+        nav a:hover { background-color: #dd0000; color: #000000; }
         .red-bar { width: 100%; height: 5px; background-color: #dd0000; }
 
         .main-content-wrapper { background-color: #0f0f11; position: relative; padding: 50px 20px; }
@@ -143,32 +147,17 @@
         .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; }
 
-        /* ВМЕСТИТЕЛЬНАЯ КАРТОЧКА С СКРОЛЛОМ */
-        .card { 
-            background: rgba(26, 26, 28, 0.92); 
-            border: 1px solid #2d2d30; 
-            padding: 25px; 
-            max-height: 460px; /* Текст не растянет пост на всю страницу */
-            display: flex; 
-            flex-direction: column; 
-        }
+        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; max-height: 460px; display: flex; flex-direction: column; }
         .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; }
         
-        /* Внутренний скролл для контента */
-        .scroll-content { 
-            overflow-y: auto; 
-            flex-grow: 1; 
-            padding-right: 8px;
-        }
-
-        /* Кастомизация полосы прокрутки, чтобы выглядело аккуратно */
+        .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; }
         .scroll-content::-webkit-scrollbar { width: 6px; }
         .scroll-content::-webkit-scrollbar-track { background: #121214; }
         .scroll-content::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
         .scroll-content::-webkit-scrollbar-thumb:hover { background: #dd0000; }
 
-        /* ШРИФТ ВОРДА */
-        .card p.word-text { 
+        /* Базовый стиль текста (по умолчанию шрифт Ворда) */
+        .word-text { 
             font-family: 'Times New Roman', Times, Georgia, serif; 
             font-size: 1.15rem; 
             color: #e0e0e0; 
@@ -176,17 +165,12 @@
             line-height: 1.6;
         }
 
-        /* СТИЛИ ИЗОБРАЖЕНИЙ ВНУТРИ ТЕКСТА */
-        .inline-post-img { 
-            width: 100%; 
-            max-height: 280px; 
-            object-fit: contain; 
-            background-color: #121214; 
-            border: 1px solid #2d2d30; 
-            margin: 12px 0;
-            display: block;
-        }
+        /* КЛАССЫ СТИЛИЗАЦИИ РАЗНЫХ ШРИФТОВ ВНУТРИ ПОСТА */
+        .f-word { font-family: 'Times New Roman', Times, serif; font-size: 1.15rem; }
+        .f-modern { font-family: 'Montserrat', sans-serif; font-weight: 700; color: #ffffff; font-size: 1.05rem; }
+        .f-mono { font-family: monospace; background-color: #121214; padding: 2px 6px; border: 1px solid #2d2d30; color: #ffaa00; font-size: 1rem; }
 
+        .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 12px 0; display: block; }
         .loaded-video-audio { width: 100%; max-height: 240px; background-color: #121214; margin-bottom: 10px; }
         .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; font-weight: bold; text-transform: uppercase; text-align: center; }
     </style>
