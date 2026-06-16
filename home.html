@@ -12,6 +12,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
+        // Конфигурация Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
             authDomain: "ssba-58900.firebaseapp.com",
@@ -26,20 +27,20 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Функция обработки текста: парсит и картинки, и кастомные шрифты
+        // Функция обработки текста: парсит картинки в любые места и меняет шрифты внутри поста
         window.parseTextWithImagesAndFonts = function(text, mediaUrls, fallbackUrl) {
             let urls = mediaUrls && mediaUrls.length > 0 ? [...mediaUrls] : (fallbackUrl ? [fallbackUrl] : []);
             let htmlText = text || "";
 
-            // Экранируем HTML во избежание багов, но сохраняем переносы строк
+            // Экранируем HTML, чтобы ничего не поехало, но сохраняем структуру
             htmlText = htmlText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-            // Обработка тегов изменения шрифтов
+            // Обработка кастомных BB-кодов шрифтов от БоноРеза
             htmlText = htmlText.replace(/\[font=word\]([\s\S]*?)\[\/font\]/g, '<span class="f-word">$1</span>');
             htmlText = htmlText.replace(/\[font=modern\]([\s\S]*?)\[\/font\]/g, '<span class="f-modern">$1</span>');
             htmlText = htmlText.replace(/\[font=mono\]([\s\S]*?)\[\/font\]/g, '<span class="f-mono">$1</span>');
 
-            // Заменяем коды [img1], [img2] на реальные картинки
+            // Заменяем коды [img1], [img2] на реальные картинки в тексте
             let usedIndexes = new Set();
             htmlText = htmlText.replace(/\[img(\d+)\]/g, (match, num) => {
                 const idx = parseInt(num) - 1;
@@ -50,7 +51,7 @@
                 return "";
             });
 
-            // Запасной вариант: если фото загружено, но код в тексте не прописан — выводим сверху
+            // Запасной вариант: если фото загружено, но код в тексте не прописан — выводим наверх
             let topImagesHtml = "";
             urls.forEach((url, idx) => {
                 if (!usedIndexes.has(idx) && text && !text.includes(`[img${idx+1}]`)) {
@@ -67,17 +68,20 @@
 
             onSnapshot(q, (snapshot) => {
                 if (snapshot.empty) {
-                    container.innerHTML = `<div class="card"><p style="text-align:center; color:#666;">Пока ничего нет.</p></div>`;
+                    container.innerHTML = `<div class="card"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
                     return;
                 }
                 container.innerHTML = ""; 
                 snapshot.forEach((doc) => {
                     container.innerHTML += renderFunction(doc.data());
                 });
+            }, (error) => {
+                console.error(`Ошибка загрузки раздела ${collectionName}: `, error);
             });
         }
 
         window.addEventListener('DOMContentLoaded', () => {
+            // 1. Посты
             loadSectionData("posts", "posts-container", (data) => `
                 <div class="card">
                     <h3>${data.title || "[Без заголовка]"}</h3>
@@ -87,35 +91,39 @@
                 </div>
             `);
 
+            // 2. Фотогалерея
             loadSectionData("photo", "photo-container", (data) => `
-                <div class="card">
-                    <h3>${data.title}</h3>
-                    <div class="scroll-content">
+                <div class="card media-card">
+                    <h3 class="media-title-center">${data.title}</h3>
+                    <div class="scroll-content" style="width: 100%;">
                         ${parseTextWithImagesAndFonts(data.text, data.mediaUrls, data.mediaUrl)}
                     </div>
                 </div>
             `);
 
+            // 3. Видеоархив
             loadSectionData("video", "video-container", (data) => `
-                <div class="card">
-                    <h3>${data.title}</h3>
-                    <div class="scroll-content">
-                        <video src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls class="loaded-video-audio"></video>
+                <div class="card media-card">
+                    <h3 class="media-title-center">${data.title}</h3>
+                    <div class="scroll-content" style="width: 100%;">
+                        <video src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls class="loaded-media"></video>
                         <div class="word-text">${data.text || ""}</div>
                     </div>
                 </div>
             `);
 
+            // 4. Музыка
             loadSectionData("music", "music-container", (data) => `
-                <div class="card">
-                    <h3>${data.title}</h3>
-                    <div class="scroll-content">
-                        <audio src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls style="width:100%; margin-bottom:10px;"></audio>
+                <div class="card media-card">
+                    <h3 class="media-title-center">${data.title}</h3>
+                    <div class="scroll-content" style="width: 100%;">
+                        <audio src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls class="audio-player-custom"></audio>
                         <div class="word-text">${data.text || ""}</div>
                     </div>
                 </div>
             `);
 
+            // 5. Библиотека
             loadSectionData("books", "books-container", (data) => `
                 <div class="card">
                     <h3>${data.title}</h3>
@@ -129,56 +137,111 @@
     </script>
 
     <style>
+        /* Базовые сбросы стилей */
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; }
+        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; overflow-x: hidden; }
 
-        /* ВОЗВРАЩЕННЫЙ КРАСИВЫЙ ЛОГОТИП С СЕКЦИЕЙ HEADER */
-        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; }
-        .logo h1 { font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; color: #EBEBEB; text-transform: uppercase; text-shadow: 4px 4px 0px #dd0000; letter-spacing: 2px; }
-        .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; text-align: center; margin-bottom: 35px; }
+        /* ОРИГИНАЛЬНАЯ ШАПКА */
+        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; position: relative; z-index: 10; }
+        .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 500px; margin: 0 auto; }
+        .logo-img { max-width: 160px; height: auto; display: block; margin-bottom: 15px; }
+        
+        /* СТАРЫЙ ШРИФТ ЗАГОЛОВКОВ MONTSERRAT С ТЕНЬЮ */
+        .logo h1 {
+            font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; letter-spacing: -1px;
+            color: #EBEBEB; text-transform: uppercase; line-height: 1; text-shadow: 4px 4px 0px #dd0000; margin-bottom: 30px;
+        }
+        .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; line-height: 1.5; text-align: center; margin-bottom: 35px; padding: 0 10px; }
+        .quote-box { font-size: 0.95rem; color: #8a8a8f; margin-bottom: 40px; font-style: italic; padding: 0 15px; min-height: 40px; }
 
-        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; max-width: 650px; margin: 0 auto 20px auto; }
-        nav a { color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; font-weight: bold; }
-        nav a:hover { background-color: #dd0000; color: #000000; }
-        .red-bar { width: 100%; height: 5px; background-color: #dd0000; }
+        /* Навигационная сетка */
+        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; width: 100%; max-width: 650px; margin: 0 auto 20px auto; }
+        nav a {
+            color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px;
+            padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.2s ease;
+        }
+        nav a:hover { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
+        .red-bar { width: 100%; height: 5px; background-color: #dd0000; position: relative; z-index: 10; }
 
-        .main-content-wrapper { background-color: #0f0f11; position: relative; padding: 50px 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; }
+        /* АНИМИРОВАННЫЙ ФОН И СЕТКА */
+        .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; }
+        .animated-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.12; }
+        .bg-grid {
+            width: 200%; height: 200%; position: absolute; top: -50%; left: -50%;
+            background-image: url('https://i.ibb.co/mCdNQXFF/2749-20260614142242.png');
+            background-size: 65px 65px; background-repeat: repeat; animation: moveDiag 12s linear infinite; 
+        }
+        @keyframes moveDiag { 0% { transform: translate(0, 0); } 100% { transform: translate(-65px, 65px); } }
+
+        .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; }
+        section { margin-bottom: 60px; }
+        
+        /* СТАРЫЙ ШРИФТ ДЛЯ ЗАГОЛОВКОВ РАЗДЕЛОВ */
+        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; letter-spacing: 1px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; }
 
-        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; max-height: 460px; display: flex; flex-direction: column; }
+        /* ВМЕСТИТЕЛЬНЫЕ КАРТОЧКИ С СКРОЛЛОМ */
+        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; max-height: 460px; display: flex; flex-direction: column; transition: border-color 0.3s; }
+        .card:hover { border-color: #dd0000; }
+        
+        /* Заголовки постов в стиле Montserrat */
         .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; }
         
+        /* Внутренний скролл */
         .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; }
         .scroll-content::-webkit-scrollbar { width: 6px; }
         .scroll-content::-webkit-scrollbar-track { background: #121214; }
         .scroll-content::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
         .scroll-content::-webkit-scrollbar-thumb:hover { background: #dd0000; }
 
-        /* Базовый стиль текста (по умолчанию шрифт Ворда) */
+        /* Базовый шрифт Ворда для текстов */
         .word-text { 
             font-family: 'Times New Roman', Times, Georgia, serif; 
             font-size: 1.15rem; 
             color: #e0e0e0; 
             white-space: pre-wrap; 
             line-height: 1.6;
+            text-align: left;
         }
 
-        /* КЛАССЫ СТИЛИЗАЦИИ РАЗНЫХ ШРИФТОВ ВНУТРИ ПОСТА */
+        /* КЛАССЫ СТИЛИЗАЦИИ РАЗНЫХ ШРИФТОВ ВНУТРИ ТЕКСТА */
         .f-word { font-family: 'Times New Roman', Times, serif; font-size: 1.15rem; }
         .f-modern { font-family: 'Montserrat', sans-serif; font-weight: 700; color: #ffffff; font-size: 1.05rem; }
         .f-mono { font-family: monospace; background-color: #121214; padding: 2px 6px; border: 1px solid #2d2d30; color: #ffaa00; font-size: 1rem; }
 
+        /* Выравнивание медиа */
+        .media-card { display: flex; flex-direction: column; align-items: center; }
+        .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
         .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 12px 0; display: block; }
-        .loaded-video-audio { width: 100%; max-height: 240px; background-color: #121214; margin-bottom: 10px; }
-        .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; font-weight: bold; text-transform: uppercase; text-align: center; }
+        .loaded-media { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; display: block; }
+        .audio-player-custom { width: 100%; margin-bottom: 15px; outline: none; }
+
+        .btn {
+            display: inline-block; margin-top: 10px; padding: 10px 20px; background-color: #dd0000; color: #000000;
+            text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s; text-align: center;
+        }
+        .btn:hover { background-color: #ff1a1a; }
+
+        /* ОРИГИНАЛЬНЫЙ ФУТЕР */
+        footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 20px; text-align: center; position: relative; z-index: 10; }
+        .warning-text { color: #dd0000; font-size: 1.1rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; max-width: 700px; margin-left: auto; margin-right: auto; }
+        .copyright-text { color: #5a0000; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
     </style>
 </head>
 <body>
+
     <header>
-        <div class="logo"><h1>ССБА</h1></div>
-        <p class="description">Марксистское объединение. Образование и просвещение.</p>
+        <div class="logo-container">
+            <img class="logo-img" src="https://i.ibb.co/WvfPwwL4/2748-20260614014830.png" alt="Логотип ССБА">
+            <div class="logo">
+                <h1>ССБА</h1>
+            </div>
+            <p class="description">
+                мы некоммерческое марксистское объединение. Пишем новостные, научные и исторические статьи с целью образования и просвещения людей.
+            </p>
+            <div class="quote-box" id="quote-container">«Загрузка цитаты...» — Автор</div>
+        </div>
+
         <nav>
             <a href="#posts">Посты</a>
             <a href="#photo">Фото</a>
@@ -187,16 +250,93 @@
             <a href="#books">Книги</a>
         </nav>
     </header>
+
     <div class="red-bar"></div>
 
     <div class="main-content-wrapper">
+        <div class="animated-bg">
+            <div class="bg-grid"></div>
+        </div>
+
         <div class="container">
-            <section id="posts"><h2 class="section-title">Последние Посты</h2><div class="grid" id="posts-container"></div></section>
-            <section id="photo"><h2 class="section-title">Фотогалерея</h2><div class="grid" id="photo-container"></div></section>
-            <section id="video"><h2 class="section-title">Видеоархив</h2><div class="grid" id="video-container"></div></section>
-            <section id="music"><h2 class="section-title">Музыкальный архив</h2><div class="grid" id="music-container"></div></section>
-            <section id="books"><h2 class="section-title">Библиотека</h2><div class="grid" id="books-container"></div></section>
+            <section id="posts">
+                <h2 class="section-title">Последние Посты</h2>
+                <div class="grid" id="posts-container">
+                    <div class="card"><p style="text-align:center; color:#666;">Подключение к серверу ССБА...</p></div>
+                </div>
+            </section>
+
+            <section id="photo">
+                <h2 class="section-title">Фотогалерея</h2>
+                <div class="grid" id="photo-container">
+                    <div class="card"><p style="text-align:center; color:#666;">Загрузка изображений...</p></div>
+                </div>
+            </section>
+
+            <section id="video">
+                <h2 class="section-title">Видеоархив</h2>
+                <div class="grid" id="video-container">
+                    <div class="card"><p style="text-align:center; color:#666;">Загрузка видеофайлов...</p></div>
+                </div>
+            </section>
+
+            <section id="music">
+                <h2 class="section-title">Музыкальный архив</h2>
+                <div class="grid" id="music-container">
+                    <div class="card"><p style="text-align:center; color:#666;">Загрузка аудиозаписей...</p></div>
+                </div>
+            </section>
+
+            <section id="books">
+                <h2 class="section-title">Библиотека</h2>
+                <div class="grid" id="books-container">
+                    <div class="card"><p style="text-align:center; color:#666;">Загрузка литературы...</p></div>
+                </div>
+            </section>
         </div>
     </div>
+
+    <div class="red-bar"></div>
+
+    <footer>
+        <div class="warning-text">
+            !ВНИМАНИЕ! Мы не имеем никакого отношения к граффити и нападениям.
+        </div>
+        <div class="copyright-text">
+            &copy; 2026 ССБА. Все права защищены.
+        </div>
+    </footer>
+
+    <script>
+        const quotes = [
+            { text: "Жить стало лучше, жить стало веселее.", author: "И. В. Сталин" },
+            { text: "Кадры решают всё.", author: "И. В. Сталин" },
+            { text: "Марксизм не догма, а руководство к действию.", author: "И. В. Сталин" },
+            { text: "Чтобы построить новый мир, нужно иметь знания, нужно освоить науку.", author: "И. В. Сталин" },
+            { text: "Учиться, учиться и еще раз учиться!", author: "В. И. Ленин" },
+            { text: "Государство — это аппарат насилия в руках господствующего класса.", author: "В. И. Ленин" },
+            { text: "Честность в политике есть результат силы, лицемерие — результат слабости.", author: "В. И. Ленин" },
+            { text: "Без революционной теории не может быть и революционного движения.", author: "В. И. Ленин" },
+            { text: "Винтовка рождает власть.", author: "Мао Цзэдун" },
+            { text: "История — это процесс борьбы между старым и новым.", author: "Мао Цзэдун" },
+            { text: "Всякая истина рождается из практики.", author: "Мао Цзэдун" },
+            { text: "Революция — это не званый обед.", author: "Мао Цзэдун" },
+            { text: "Философы лишь различным образом объясняли мир, но дело заключается в том, чтобы изменить его.", author: "Карл Маркс" },
+            { text: "Капитал боится отсутствия прибыли или слишком маленькой прибыли, как природа боится пустоты.", author: "Карл Маркс" },
+            { text: "Призрак бродит по Европе — призрак коммунизма.", author: "Карл Маркс" },
+            { text: "Бытие определяет сознание.", author: "Карл Маркс" },
+            { text: "Освобождение рабочего класса должно быть делом самого рабочего класса.", author: "Фридрих Энгельс" },
+            { text: "Труд создал самого человека.", author: "Фридрих Энгельс" },
+            { text: "Государство не отменяется, оно отмирает.", author: "Фридрих Энгельс" },
+            { text: "Грамм собственного опыта стоит дороже тонны чужой теории.", author: "Фридрих Энгельс" }
+        ];
+
+        function setRandomQuote() {
+            const randomIndex = Math.floor(Math.random() * quotes.length);
+            const selectedQuote = quotes[randomIndex];
+            document.getElementById("quote-container").innerHTML = `«${selectedQuote.text}» — ${selectedQuote.author}`;
+        }
+        window.onload = setRandomQuote;
+    </script>
 </body>
-</html>
+    </html>
