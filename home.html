@@ -8,11 +8,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
     
+    <!-- Подключение Firebase и логики карусели -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Твоя конфигурация Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
             authDomain: "ssba-58900.firebaseapp.com",
@@ -24,167 +24,180 @@
             measurementId: "G-ZY8PQ2DXE3"
         };
 
-        // Инициализация
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Функция автоматического обновления контента на странице
+        // Функция рендеринга карусели изображений (ТТ-стиль)
+        window.renderMediaBlock = function(mediaUrls, fallbackUrl) {
+            const urls = mediaUrls && mediaUrls.length > 0 ? mediaUrls : (fallbackUrl ? [fallbackUrl] : []);
+            if (urls.length === 0) return "";
+            if (urls.length === 1) {
+                return `<img src="${urls[0]}" class="loaded-media" alt="Медиа">`;
+            }
+            
+            // Если картинок несколько, собираем слайдер
+            const slides = urls.map((url, i) => `<img src="${url}" class="carousel-slide ${i === 0 ? 'active' : ''}" alt="Слайд">`).join('');
+            const dots = urls.map((_, i) => `<span class="carousel-dot ${i === 0 ? 'active' : ''}" onclick="window.setSlide(this, ${i})"></span>`).join('');
+            
+            return `
+                <div class="carousel-container">
+                    <div class="carousel-slides">${slides}</div>
+                    <button type="button" class="carousel-nav prev" onclick="window.changeSlide(this, -1)">&#10094;</button>
+                    <button type="button" class="carousel-nav next" onclick="window.changeSlide(this, 1)">&#10095;</button>
+                    <div class="carousel-dots">${dots}</div>
+                </div>
+            `;
+        };
+
+        // Функции управления слайдером
+        window.changeSlide = function(btn, dir) {
+            const container = btn.parentElement;
+            const slides = container.querySelectorAll('.carousel-slide');
+            const dots = container.querySelectorAll('.carousel-dot');
+            let idx = Array.from(slides).findIndex(s => s.classList.contains('active'));
+            
+            slides[idx].classList.remove('active');
+            dots[idx].classList.remove('active');
+            
+            idx += dir;
+            if (idx >= slides.length) idx = 0;
+            if (idx < 0) idx = slides.length - 1;
+            
+            slides[idx].classList.add('active');
+            dots[idx].classList.add('active');
+        };
+
+        window.setSlide = function(dot, targetIdx) {
+            const container = dot.parentElement.parentElement;
+            const slides = container.querySelectorAll('.carousel-slide');
+            const dots = container.querySelectorAll('.carousel-dot');
+            
+            slides.forEach(s => s.classList.remove('active'));
+            dots.forEach(d => d.classList.remove('active'));
+            
+            slides[targetIdx].classList.add('active');
+            dots[targetIdx].classList.add('active');
+        };
+
         function loadSectionData(collectionName, containerId, renderFunction) {
             const container = document.getElementById(containerId);
             const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
 
             onSnapshot(q, (snapshot) => {
                 if (snapshot.empty) {
-                    container.innerHTML = `<div class="card"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
+                    container.innerHTML = `<div class="card"><p style="text-align:center; color:#666;">Пока ничего нет.</p></div>`;
                     return;
                 }
-                
                 container.innerHTML = ""; 
                 snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    container.innerHTML += renderFunction(data);
+                    container.innerHTML += renderFunction(doc.data());
                 });
-            }, (error) => {
-                console.error(`Ошибка загрузки раздела ${collectionName}: `, error);
             });
         }
 
-        // Запуск отображения для всех пяти разделов после загрузки страницы
         window.addEventListener('DOMContentLoaded', () => {
-            // 1. Посты (Умный вывод текста + опциональное фото, если оно есть)
-            loadSectionData("posts", "posts-container", (data) => {
-                let imgTag = "";
-                if (data.mediaUrl) {
-                    imgTag = `<img src="${data.mediaUrl}" alt="Фото к посту" class="loaded-media" style="margin-top:12px; margin-bottom:0px;">`;
-                }
-                return `
-                    <div class="card text-post-card">
-                        <h3>${data.title || "[Без заголовка]"}</h3>
-                        <p>${data.text}</p>
-                        ${imgTag}
-                    </div>
-                `;
-            });
+            // 1. Посты (Фото на самом верху карточки)
+            loadSectionData("posts", "posts-container", (data) => `
+                <div class="card text-post-card">
+                    ${renderMediaBlock(data.mediaUrls, data.mediaUrl)}
+                    <h3>${data.title || "[Без заголовка]"}</h3>
+                    <p class="word-text">${data.text}</p>
+                </div>
+            `);
 
-            // 2. Фотогалерея (Заголовок по центру вверху, фото, снизу текст)
+            // 2. Фотогалерея (Фото на самом верху карточки)
             loadSectionData("photo", "photo-container", (data) => `
                 <div class="card media-card">
-                    <h3 class="media-title-center">${data.title}</h3>
-                    <img src="${data.mediaUrl}" alt="${data.title}" class="loaded-media">
-                    <p class="media-text-bottom">${data.text}</p>
+                    ${renderMediaBlock(data.mediaUrls, data.mediaUrl)}
+                    <h3>${data.title}</h3>
+                    <p class="word-text">${data.text}</p>
                 </div>
             `);
 
-            // 3. Видеоархив (Заголовок, плеер, текст)
+            // 3. Видеоархив (Плеер на самом верху карточки)
             loadSectionData("video", "video-container", (data) => `
                 <div class="card media-card">
-                    <h3 class="media-title-center">${data.title}</h3>
-                    <video src="${data.mediaUrl}" controls class="loaded-media"></video>
-                    <p class="media-text-bottom">${data.text}</p>
+                    <video src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls class="loaded-media"></video>
+                    <h3>${data.title}</h3>
+                    <p class="word-text">${data.text}</p>
                 </div>
             `);
 
-            // 4. Музыка (Заголовок, аудио-плеер, текст)
+            // 4. Музыка
             loadSectionData("music", "music-container", (data) => `
                 <div class="card media-card">
-                    <h3 class="media-title-center">${data.title}</h3>
-                    <audio src="${data.mediaUrl}" controls class="audio-player-custom"></audio>
-                    <p class="media-text-bottom">${data.text}</p>
+                    <audio src="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" controls class="audio-player-custom"></audio>
+                    <h3>${data.title}</h3>
+                    <p class="word-text">${data.text}</p>
                 </div>
             `);
 
-            // 5. Библиотека / Книги (Заголовок, описание, кнопка скачивания прямой ссылки)
+            // 5. Библиотека
             loadSectionData("books", "books-container", (data) => `
                 <div class="card">
                     <h3>${data.title}</h3>
-                    <p style="margin-bottom: 15px;">${data.text}</p>
-                    <a href="${data.mediaUrl}" target="_blank" class="btn">Скачать / Читать</a>
+                    <p class="word-text" style="margin-bottom: 15px;">${data.text}</p>
+                    <a href="${data.mediaUrls ? data.mediaUrls[0] : data.mediaUrl}" target="_blank" class="btn">Скачать / Читать</a>
                 </div>
             `);
         });
     </script>
 
     <style>
-        /* Базовые сбросы стилей */
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; overflow-x: hidden; }
+        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; }
 
-        /* ШАПКА */
-        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; position: relative; z-index: 10; }
-        .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 500px; margin: 0 auto; }
-        .logo-img { max-width: 160px; height: auto; display: block; margin-bottom: 15px; }
-        .logo h1 {
-            font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; letter-spacing: -1px;
-            color: #EBEBEB; text-transform: uppercase; line-height: 1; text-shadow: 4px 4px 0px #dd0000; margin-bottom: 30px;
-        }
-        .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; line-height: 1.5; text-align: center; margin-bottom: 35px; padding: 0 10px; }
-        .quote-box { font-size: 0.95rem; color: #8a8a8f; margin-bottom: 40px; font-style: italic; padding: 0 15px; min-height: 40px; }
+        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; }
+        .logo h1 { font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; color: #EBEBEB; text-transform: uppercase; text-shadow: 4px 4px 0px #dd0000; }
+        .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; text-align: center; margin-bottom: 35px; }
 
-        /* Навигационная сетка */
-        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; width: 100%; max-width: 650px; margin: 0 auto 20px auto; }
-        nav a {
-            color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px;
-            padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.2s ease;
-        }
-        nav a:hover { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
-        .red-bar { width: 100%; height: 5px; background-color: #dd0000; position: relative; z-index: 10; }
+        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; max-width: 650px; margin: 0 auto 20px auto; }
+        nav a { color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; }
+        nav a:hover { background-color: #dd0000; color: #000000; font-weight: bold; }
+        .red-bar { width: 100%; height: 5px; background-color: #dd0000; }
 
-        /* АНИМИРОВАННЫЙ ФОН С ТВОЕЙ СЕТКОЙ */
-        .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; }
-        .animated-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.12; }
-        .bg-grid {
-            width: 200%; height: 200%; position: absolute; top: -50%; left: -50%;
-            background-image: url('https://i.ibb.co/mCdNQXFF/2749-20260614142242.png');
-            background-size: 65px 65px; background-repeat: repeat; animation: moveDiag 12s linear infinite; 
-        }
-        @keyframes moveDiag { 0% { transform: translate(0, 0); } 100% { transform: translate(-65px, 65px); } }
-
-        .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; }
-        section { margin-bottom: 60px; }
-        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; letter-spacing: 1px; }
+        .main-content-wrapper { background-color: #0f0f11; position: relative; padding: 50px 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
 
-        /* КАРТОЧКИ КОНТЕНТА */
-        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; transition: border-color 0.3s; }
-        .card:hover { border-color: #dd0000; }
-        .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.4rem; text-transform: uppercase; margin-bottom: 12px; color: #dd0000; }
-        .card p { color: #bbb; font-size: 0.95rem; white-space: pre-wrap; }
+        /* КАРТОЧКА И ШРИФТ ИЗ ВОРДА */
+        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; display: flex; flex-direction: column; }
+        .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.4rem; text-transform: uppercase; margin-top: 15px; margin-bottom: 12px; color: #dd0000; }
         
-        .text-post-card { display: flex; flex-direction: column; justify-content: space-between; }
-
-        /* СТИЛИ ДЛЯ ВЫРАВНИВАНИЯ МЕДИА */
-        .media-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
-        .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
-        .loaded-media { width: 100%; max-height: 350px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; }
-        .audio-player-custom { width: 100%; margin-bottom: 15px; outline: none; }
-        .media-text-bottom { width: 100%; text-align: left; color: #a0a0a5; }
-
-        .btn {
-            display: inline-block; margin-top: 10px; padding: 10px 20px; background-color: #dd0000; color: #000000;
-            text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s;
+        /* Текст как в Word: шрифт Times New Roman, выравнивание по ширине или левому краю */
+        .card p.word-text { 
+            font-family: 'Times New Roman', Times, Georgia, serif; 
+            font-size: 1.15rem; 
+            color: #e0e0e0; 
+            white-space: pre-wrap; 
+            line-height: 1.6;
         }
-        .btn:hover { background-color: #ff1a1a; }
 
-        /* ФУТЕР */
-        footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 20px; text-align: center; position: relative; z-index: 10; }
-        .warning-text { color: #dd0000; font-size: 1.1rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; max-width: 700px; margin-left: auto; margin-right: auto; }
-        .copyright-text { color: #5a0000; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        /* ТТ КАРУСЕЛЬ (СЛАЙДЕР ФОТОГРАФИЙ НА САМОМ ВЕРХУ) */
+        .carousel-container { position: relative; width: 100%; height: 300px; background-color: #121214; border: 1px solid #2d2d30; overflow: hidden; }
+        .carousel-slides { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .carousel-slide { display: none; width: 100%; height: 100%; object-fit: contain; }
+        .carousel-slide.active { display: block; }
+        
+        .carousel-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.7); color: #fff; border: none; padding: 10px 12px; cursor: pointer; z-index: 5; font-size: 16px; }
+        .carousel-nav:hover { background: #dd0000; color: #000; }
+        .carousel-nav.prev { left: 0; }
+        .carousel-nav.next { right: 0; }
+        
+        .carousel-dots { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 5; }
+        .carousel-dot { width: 8px; height: 8px; background: rgba(255,255,255,0.4); border-radius: 50%; cursor: pointer; }
+        .carousel-dot.active { background: #dd0000; width: 14px; border-radius: 4px; }
+
+        .loaded-media { width: 100%; height: 300px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; }
+        .audio-player-custom { width: 100%; }
+        .btn { display: inline-block; margin-top: 15px; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; font-weight: bold; text-transform: uppercase; text-align: center; }
     </style>
 </head>
 <body>
-
     <header>
-        <div class="logo-container">
-            <img class="logo-img" src="https://i.ibb.co/WvfPwwL4/2748-20260614014830.png" alt="Логотип ССБА">
-            <div class="logo">
-                <h1>ССБА</h1>
-            </div>
-            <p class="description">
-                мы некоммерческое марксистское объединение. Пишем новостные, научные и исторические статьи с целью образования и просвещения людей.
-            </p>
-            <div class="quote-box" id="quote-container">«Загрузка цитаты...» — Автор</div>
-        </div>
-
+        <div class="logo"><h1>ССБА</h1></div>
+        <p class="description">Марксистское объединение. Образование и просвещение.</p>
         <nav>
             <a href="#posts">Посты</a>
             <a href="#photo">Фото</a>
@@ -193,93 +206,16 @@
             <a href="#books">Книги</a>
         </nav>
     </header>
-
     <div class="red-bar"></div>
 
     <div class="main-content-wrapper">
-        <div class="animated-bg">
-            <div class="bg-grid"></div>
-        </div>
-
         <div class="container">
-            <section id="posts">
-                <h2 class="section-title">Последние Посты</h2>
-                <div class="grid" id="posts-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Подключение к серверу ССБА...</p></div>
-                </div>
-            </section>
-
-            <section id="photo">
-                <h2 class="section-title">Фотогалерея</h2>
-                <div class="grid" id="photo-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка изображений...</p></div>
-                </div>
-            </section>
-
-            <section id="video">
-                <h2 class="section-title">Видеоархив</h2>
-                <div class="grid" id="video-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка видеофайлов...</p></div>
-                </div>
-            </section>
-
-            <section id="music">
-                <h2 class="section-title">Музыкальный архив</h2>
-                <div class="grid" id="music-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка аудиозаписей...</p></div>
-                </div>
-            </section>
-
-            <section id="books">
-                <h2 class="section-title">Библиотека</h2>
-                <div class="grid" id="books-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка литературы...</p></div>
-                </div>
-            </section>
+            <section id="posts"><h2 class="section-title">Последние Посты</h2><div class="grid" id="posts-container"></div></section>
+            <section id="photo"><h2 class="section-title">Фотогалерея</h2><div class="grid" id="photo-container"></div></section>
+            <section id="video"><h2 class="section-title">Видеоархив</h2><div class="grid" id="video-container"></div></section>
+            <section id="music"><h2 class="section-title">Музыкальный архив</h2><div class="grid" id="music-container"></div></section>
+            <section id="books"><h2 class="section-title">Библиотека</h2><div class="grid" id="books-container"></div></section>
         </div>
     </div>
-
-    <div class="red-bar"></div>
-
-    <footer>
-        <div class="warning-text">
-            !ВНИМАНИЕ! Мы не имеем никакого отношения к граффити и нападениям.
-        </div>
-        <div class="copyright-text">
-            &copy; 2026 ССБА. Все права защищены.
-        </div>
-    </footer>
-
-    <script>
-        const quotes = [
-            { text: "Жить стало лучше, жить стало веселее.", author: "И. В. Сталин" },
-            { text: "Кадры решают всё.", author: "И. В. Сталин" },
-            { text: "Марксизм не догма, а руководство к действию.", author: "И. В. Сталин" },
-            { text: "Чтобы построить новый мир, нужно иметь знания, нужно освоить науку.", author: "И. В. Сталин" },
-            { text: "Учиться, учиться и еще раз учиться!", author: "В. И. Ленин" },
-            { text: "Государство — это аппарат насилия в руках господствующего класса.", author: "В. И. Ленин" },
-            { text: "Честность в политике есть результат силы, лицемерие — результат слабости.", author: "В. И. Ленин" },
-            { text: "Без революционной теории не может быть и революционного движения.", author: "В. И. Ленин" },
-            { text: "Винтовка рождает власть.", author: "Мао Цзэдун" },
-            { text: "История — это процесс борьбы между старым и новым.", author: "Мао Цзэдун" },
-            { text: "Всякая истина рождается из практики.", author: "Мао Цзэдун" },
-            { text: "Революция — это не званый обед.", author: "Мао Цзэдун" },
-            { text: "Философы лишь различным образом объясняли мир, но дело заключается в том, чтобы изменить его.", author: "Карл Маркс" },
-            { text: "Капитал боится отсутствия прибыли или слишком маленькой прибыли, как природа боится пустоты.", author: "Карл Маркс" },
-            { text: "Призрак бродит по Европе — призрак коммунизма.", author: "Карл Маркс" },
-            { text: "Бытие определяет сознание.", author: "Карл Маркс" },
-            { text: "Освобождение рабочего класса должно быть делом самого рабочего класса.", author: "Фридрих Энгельс" },
-            { text: "Труд создал самого человека.", author: "Фридрих Энгельс" },
-            { text: "Государство не отменяется, оно отмирает.", author: "Фридрих Энгельс" },
-            { text: "Грамм собственного опыта стоит дороже тонны чужой теории.", author: "Фридрих Энгельс" }
-        ];
-
-        function setRandomQuote() {
-            const randomIndex = Math.floor(Math.random() * quotes.length);
-            const selectedQuote = quotes[randomIndex];
-            document.getElementById("quote-container").innerHTML = `«${selectedQuote.text}» — ${selectedQuote.author}`;
-        }
-        window.onload = setRandomQuote;
-    </script>
 </body>
 </html>
