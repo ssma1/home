@@ -7,12 +7,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Твоя конфигурация Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
             authDomain: "ssba-58900.firebaseapp.com",
@@ -35,7 +35,35 @@
         let currentEditCollection = "";
         let currentEditMediaUrl = "";
 
-        // Удаление публикации
+        // Специальная функция обновления "О нас" (всегда пишет в документ main_info)
+        window.saveAboutText = async function() {
+            const newText = document.getElementById("about-edit-textarea").value.trim();
+            if(!newText) return alert("Введите текст!");
+            
+            const pass = prompt("Введите секретный пароль:");
+            if (pass !== SECRET_PASSWORD) return alert("Неверный пароль!");
+
+            try {
+                await setDoc(doc(db, "about", "main_info"), {
+                    text: newText,
+                    secretPassword: SECRET_PASSWORD
+                });
+                alert("Описание 'О нас' успешно обновлено!");
+            } catch(e) {
+                console.error(e);
+                alert("Ошибка сохранения: " + e.message);
+            }
+        };
+
+        // Загрузка текущего текста "О нас" в админку
+        function loadAboutEditor() {
+            onSnapshot(doc(db, "about", "main_info"), (docSnap) => {
+                if(docSnap.exists() && docSnap.data().text) {
+                    document.getElementById("about-edit-textarea").value = docSnap.data().text;
+                }
+            });
+        }
+
         window.deletePost = async function(collectionName, docId) {
             if (!confirm("Вы уверены, что хотите полностью удалить эту публикацию?")) return;
             
@@ -54,7 +82,6 @@
             }
         };
 
-        // Открытие модалки редактирования
         window.openEditModal = function(collectionName, docId, currentTitle, currentText, currentMediaUrl) {
             currentEditDocId = docId;
             currentEditCollection = collectionName;
@@ -80,7 +107,6 @@
 
         window.triggerEditUpload = () => document.getElementById("edit-hidden-file-input").click();
 
-        // Загрузка нового файла в Cloudinary
         window.handleEditFileChange = async function(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -122,7 +148,6 @@
             }
         };
 
-        // Сохранение изменений в базу данных
         window.saveChanges = async function() {
             const pass = prompt("Введите секретный пароль для сохранения изменений:");
             if (pass !== SECRET_PASSWORD) {
@@ -134,7 +159,6 @@
             const updatedText = document.getElementById("edit-text").value.trim();
 
             try {
-                // Передаем secretPassword внутри объекта обновления, чтобы правила пропустили запрос!
                 await updateDoc(doc(db, currentEditCollection, currentEditDocId), {
                     title: updatedTitle,
                     text: updatedText,
@@ -149,7 +173,6 @@
             }
         };
 
-        // Вывод контента
         function loadAdminSection(collectionName, containerId, renderMediaFunction) {
             const container = document.getElementById(containerId);
             const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
@@ -167,10 +190,20 @@
                     const safeTitle = (data.title || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
                     const safeText = (data.text || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
                     const safeUrl = (data.mediaUrl || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    
+                    const viewsCount = data.views || 0;
 
                     container.innerHTML += `
                         <div class="card">
-                            ${renderMediaFunction(data)}
+                            <div class="card-body-content">
+                                ${renderMediaFunction(data)}
+                            </div>
+                            
+                            <div class="admin-views-badge">
+                                <i class="material-icons">visibility</i>
+                                <span>Просмотры: ${viewsCount}</span>
+                            </div>
+
                             <div class="admin-actions">
                                 <button class="action-btn edit-btn" onclick="openEditModal('${collectionName}', '${id}', '${safeTitle}', '${safeText}', '${safeUrl}')">Изменить</button>
                                 <button class="action-btn delete-btn" onclick="deletePost('${collectionName}', '${id}')">Удалить</button>
@@ -182,6 +215,7 @@
         }
 
         window.addEventListener('DOMContentLoaded', () => {
+            loadAboutEditor();
             loadAdminSection("posts", "posts-container", (data) => `
                 <h3>${data.title || "[Без заголовка]"}</h3>
                 <p>${data.text}</p>
@@ -189,26 +223,26 @@
             `);
 
             loadAdminSection("photo", "photo-container", (data) => `
-                <h3 class="media-title-center">${data.title}</h3>
+                <h3 class="media-title-center">${data.title || "[Без заголовка]"}</h3>
                 <img src="${data.mediaUrl}" class="loaded-media">
-                <p class="media-text-bottom">${data.text}</p>
+                <p class="media-text-bottom">${data.text || ""}</p>
             `);
 
             loadAdminSection("video", "video-container", (data) => `
-                <h3 class="media-title-center">${data.title}</h3>
+                <h3 class="media-title-center">${data.title || "[Без заголовка]"}</h3>
                 <video src="${data.mediaUrl}" controls class="loaded-media"></video>
-                <p class="media-text-bottom">${data.text}</p>
+                <p class="media-text-bottom">${data.text || ""}</p>
             `);
 
             loadAdminSection("music", "music-container", (data) => `
-                <h3 class="media-title-center">${data.title}</h3>
+                <h3 class="media-title-center">${data.title || "[Без заголовка]"}</h3>
                 <audio src="${data.mediaUrl}" controls class="audio-player-custom"></audio>
-                <p class="media-text-bottom">${data.text}</p>
+                <p class="media-text-bottom">${data.text || ""}</p>
             `);
 
             loadAdminSection("books", "books-container", (data) => `
-                <h3>${data.title}</h3>
-                <p style="margin-bottom:15px;">${data.text}</p>
+                <h3>${data.title || "[Без заголовка]"}</h3>
+                <p style="margin-bottom:15px;">${data.text || ""}</p>
                 <a href="${data.mediaUrl}" target="_blank" class="btn">Открыть файл</a>
             `);
         });
@@ -234,14 +268,23 @@
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
         
         .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; display: flex; flex-direction: column; justify-content: space-between; }
+        .card-body-content { flex-grow: 1; }
         .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 12px; color: #dd0000; }
         .card p { color: #bbb; font-size: 0.95rem; white-space: pre-wrap; }
         
+        .admin-views-badge { display: flex; align-items: center; gap: 6px; color: #8a8a8f; font-size: 0.85rem; margin-top: 15px; font-weight: bold; align-self: flex-start; background: #1a1a1c; padding: 4px 8px; border: 1px solid #2d2d30; }
+        .admin-views-badge .material-icons { font-size: 16px; color: #dd0000; }
+
         .loaded-media { width: 100%; max-height: 250px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; }
         .audio-player-custom { width: 100%; margin-bottom: 15px; }
         .btn { display: inline-block; padding: 8px 15px; background-color: #333; color: #fff; text-decoration: none; font-weight: bold; text-transform: uppercase; font-size: 0.8rem; text-align: center;}
 
-        .admin-actions { display: flex; gap: 10px; margin-top: 20px; border-top: 1px solid #2d2d30; padding-top: 15px; }
+        /* Спец стили для редактора О Нас */
+        .about-edit-box { background: #1a1a1c; border: 1px solid #2d2d30; padding: 25px; margin-bottom: 30px; }
+        .about-edit-box textarea { width: 100%; min-height: 100px; background-color: #121214; border: 1px solid #2d2d30; color: #fff; padding: 15px; font-size: 1rem; resize: vertical; margin-bottom: 15px; }
+        .about-edit-box textarea:focus { outline: none; border-color: #dd0000; }
+
+        .admin-actions { display: flex; gap: 10px; margin-top: 12px; border-top: 1px solid #2d2d30; padding-top: 15px; width: 100%; }
         .action-btn { flex: 1; padding: 12px; font-weight: bold; text-transform: uppercase; font-size: 0.85rem; cursor: pointer; border: none; font-family: 'Arial', sans-serif; }
         .edit-btn { background-color: #252528; color: #ffffff; border: 1px solid #444; }
         .edit-btn:hover { border-color: #00ff00; color: #00ff00; }
@@ -269,13 +312,21 @@
         <div class="logo">
             <h1>ССБА</h1>
         </div>
-        <div class="secret-tag">Панель Модерации // Режим Админа</div>
+        <div class="secret-tag">Панель Модерации // Режим Admin</div>
     </header>
 
     <div class="red-bar"></div>
 
     <div class="main-content-wrapper">
         <div class="container">
+            
+            <section id="about-edit-section">
+                <h2 class="section-title">Редактировать «О канале»</h2>
+                <div class="about-edit-box">
+                    <textarea id="about-edit-textarea" placeholder="Введите текст, который заменит описание на главной странице..."></textarea>
+                    <button class="action-btn save-btn" style="max-width: 250px; display: block;" onclick="saveAboutText()">Обновить текст на сайте</button>
+                </div>
+            </section>
             
             <section id="posts">
                 <h2 class="section-title">Посты</h2>
@@ -334,4 +385,5 @@
     </div>
 
 </body>
-</html>
+                    </html>
+                    
