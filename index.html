@@ -6,13 +6,13 @@
     <title>ССБА — Официальный сайт</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDocs, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Твоя конфигурация Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
             authDomain: "ssba-58900.firebaseapp.com",
@@ -24,95 +24,202 @@
             measurementId: "G-ZY8PQ2DXE3"
         };
 
-        // Инициализация
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Функция автоматического обновления контента на странице
-        function loadSectionData(collectionName, containerId, renderFunction) {
-            const container = document.getElementById(containerId);
-            const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
+        const viewedPosts = new Set();
 
-            onSnapshot(q, (snapshot) => {
-                if (snapshot.empty) {
-                    container.innerHTML = `<div class="card"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
-                    return;
+        window.registerView = async function(collectionName, docId) {
+            const uniqueKey = `${collectionName}_${docId}`;
+            if (viewedPosts.has(uniqueKey)) return;
+            viewedPosts.add(uniqueKey);
+
+            const docRef = doc(db, collectionName, docId);
+            try {
+                await updateDoc(docRef, { views: increment(1) });
+            } catch(e) { 
+                console.error("Ошибка фонового подсчета просмотров:", e); 
+            }
+        };
+
+        window.parseContent = function(text, mediaUrls, fallbackUrl) {
+            let urls = [];
+            if (mediaUrls && Array.isArray(mediaUrls)) {
+                urls = [...mediaUrls];
+            } else if (fallbackUrl) {
+                urls = [fallbackUrl];
+            }
+            
+            let htmlText = text || "";
+
+            htmlText = htmlText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="post-inline-link">$1</a>');
+
+            let usedIndexes = new Set();
+            htmlText = htmlText.replace(/\[img(\d+)\]/g, (match, num) => {
+                const idx = parseInt(num) - 1;
+                if (urls[idx]) {
+                    usedIndexes.add(idx);
+                    return `<img src="${urls[idx]}" class="inline-post-img" alt="Фото">`;
                 }
-                
-                container.innerHTML = ""; 
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    container.innerHTML += renderFunction(data);
-                });
-            }, (error) => {
-                console.error(`Ошибка загрузки раздела ${collectionName}: `, error);
+                return "";
+            });
+
+            let topImagesHtml = "";
+            urls.forEach((url, idx) => {
+                if (!usedIndexes.has(idx)) {
+                    topImagesHtml += `<img src="${url}" class="inline-post-img" style="margin-bottom:15px;" alt="Фото">`;
+                }
+            });
+
+            return topImagesHtml + `<div class="word-text">${htmlText}</div>`;
+        };
+
+        // Загрузка динамического текста "О нас" из базы данных
+        function initAboutText() {
+            const aboutTextP = document.getElementById("dynamic-about-text");
+            onSnapshot(doc(db, "about", "main_info"), (docSnap) => {
+                if (docSnap.exists() && docSnap.data().text) {
+                    aboutTextP.innerText = docSnap.data().text;
+                } else {
+                    aboutTextP.innerText = "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.";
+                }
             });
         }
 
-        // Запуск отображения для всех пяти разделов после загрузки страницы
-        window.addEventListener('DOMContentLoaded', () => {
-            // 1. Посты (Умный вывод текста + опциональное фото, если оно есть)
-            loadSectionData("posts", "posts-container", (data) => {
-                let imgTag = "";
-                if (data.mediaUrl) {
-                    imgTag = `<img src="${data.mediaUrl}" alt="Фото к посту" class="loaded-media" style="margin-top:12px; margin-bottom:0px;">`;
+        // Загрузка динамических цитат из базы данных
+        async function initDynamicQuotes() {
+            try {
+                const querySnapshot = await getDocs(collection(db, "quotes"));
+                let loadedQuotes = [];
+                querySnapshot.forEach((doc) => {
+                    const d = doc.data();
+                    if(d.text && d.author) {
+                        loadedQuotes.push({ text: d.text, author: d.author });
+                    }
+                });
+                
+                if (loadedQuotes.length > 0) {
+                    const randomIndex = Math.floor(Math.random() * loadedQuotes.length);
+                    const selected = loadedQuotes[randomIndex];
+                    document.getElementById("quote-container").innerHTML = `«${selected.text}» — ${selected.author}`;
+                } else {
+                    document.getElementById("quote-container").innerHTML = `«Без революционной теории не может быть и революционного движения.» — В. И. Ленин`;
                 }
-                return `
-                    <div class="card text-post-card">
-                        <h3>${data.title || "[Без заголовка]"}</h3>
-                        <p>${data.text}</p>
-                        ${imgTag}
-                    </div>
-                `;
-            });
+            } catch (err) {
+                console.error("Ошибка загрузки цитат:", err);
+            }
+        }
 
-            // 2. Фотогалерея (Заголовок по центру вверху, фото, снизу текст)
-            loadSectionData("photo", "photo-container", (data) => `
-                <div class="card media-card">
-                    <h3 class="media-title-center">${data.title}</h3>
-                    <img src="${data.mediaUrl}" alt="${data.title}" class="loaded-media">
-                    <p class="media-text-bottom">${data.text}</p>
-                </div>
-            `);
+        let currentUnsubscribe = null;
+        window.showSection = function(sectionId) {
+            document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+            const activeLink = document.querySelector(`nav a[onclick*="${sectionId}"]`);
+            if (activeLink) activeLink.classList.add('active');
 
-            // 3. Видеоархив (Заголовок, плеер, текст)
-            loadSectionData("video", "video-container", (data) => `
-                <div class="card media-card">
-                    <h3 class="media-title-center">${data.title}</h3>
-                    <video src="${data.mediaUrl}" controls class="loaded-media"></video>
-                    <p class="media-text-bottom">${data.text}</p>
-                </div>
-            `);
+            document.getElementById('about-container').style.display = 'none';
+            const dynamicContainer = document.getElementById('dynamic-content-container');
+            dynamicContainer.style.display = 'none';
 
-            // 4. Музыка (Заголовок, аудио-плеер, текст)
-            loadSectionData("music", "music-container", (data) => `
-                <div class="card media-card">
-                    <h3 class="media-title-center">${data.title}</h3>
-                    <audio src="${data.mediaUrl}" controls class="audio-player-custom"></audio>
-                    <p class="media-text-bottom">${data.text}</p>
-                </div>
-            `);
+            if (currentUnsubscribe) { currentUnsubscribe(); currentUnsubscribe = null; }
 
-            // 5. Библиотека / Книги (Заголовок, описание, кнопка скачивания прямой ссылки)
-            loadSectionData("books", "books-container", (data) => `
-                <div class="card">
-                    <h3>${data.title}</h3>
-                    <p style="margin-bottom: 15px;">${data.text}</p>
-                    <a href="${data.mediaUrl}" target="_blank" class="btn">Скачать / Читать</a>
-                </div>
-            `);
+            if (sectionId === 'about') {
+                document.getElementById('section-page-title').innerText = "О канале";
+                document.getElementById('about-container').style.display = 'block';
+            } else {
+                dynamicContainer.style.display = 'grid';
+                let titleText = "";
+                if (sectionId === "posts") titleText = "Последние Посты";
+                if (sectionId === "photo") titleText = "Фотогалерея";
+                if (sectionId === "video") titleText = "Видеоархив";
+                if (sectionId === "music") titleText = "Музыкальный архив";
+                if (sectionId === "books") titleText = "Библиотека";
+
+                document.getElementById('section-page-title').innerText = titleText;
+                dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">Загрузка публикаций раздела...</p></div>`;
+
+                try {
+                    const q = query(collection(db, sectionId), orderBy("createdAt", "desc"));
+                    currentUnsubscribe = onSnapshot(q, (snapshot) => {
+                        if (snapshot.empty) {
+                            dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
+                            return;
+                        }
+                        
+                        let finalHtml = "";
+                        
+                        snapshot.forEach((docSnapshot) => {
+                            const data = docSnapshot.data();
+                            const id = docSnapshot.id;
+                            
+                            registerView(sectionId, id);
+
+                            const mediaUrl = data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "";
+
+                            if (sectionId === "posts" || sectionId === "photo") {
+                                finalHtml += `
+                                    <div class="card">
+                                        <h3>${data.title || "[Без заголовка]"}</h3>
+                                        <div class="scroll-content">
+                                            ${parseContent(data.text, data.mediaUrls, data.mediaUrl)}
+                                        </div>
+                                    </div>`;
+                            } else if (sectionId === "video") {
+                                finalHtml += `
+                                    <div class="card media-card">
+                                        <h3 class="media-title-center">${data.title || "[Без заголовка]"}</h3>
+                                        <div class="scroll-content" style="width: 100%;">
+                                            ${mediaUrl ? `<video src="${mediaUrl}" controls class="loaded-media"></video>` : ''}
+                                            ${parseContent(data.text, null, null)}
+                                        </div>
+                                    </div>`;
+                            } else if (sectionId === "music") {
+                                finalHtml += `
+                                    <div class="card media-card">
+                                        <h3 class="media-title-center">${data.title || "[Без заголовка]"}</h3>
+                                        <div class="scroll-content" style="width: 100%;">
+                                            ${mediaUrl ? `<audio src="${mediaUrl}" controls class="audio-player-custom"></audio>` : ''}
+                                            ${parseContent(data.text, null, null)}
+                                        </div>
+                                    </div>`;
+                            } else if (sectionId === "books") {
+                                finalHtml += `
+                                    <div class="card">
+                                        <h3>${data.title || "[Без заголовка]"}</h3>
+                                        <div class="scroll-content">
+                                            ${parseContent(data.text, null, null)}
+                                            ${mediaUrl ? `<a href="${mediaUrl}" target="_blank" class="btn" style="margin-top:15px;">Скачать / Читать</a>` : ''}
+                                        </div>
+                                    </div>`;
+                            }
+                        });
+                        
+                        dynamicContainer.innerHTML = finalHtml;
+                        
+                    }, (error) => {
+                        console.error("Ошибка Firestore:", error);
+                        dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#ff0000;">Ошибка загрузки данных.</p></div>`;
+                    });
+                } catch (err) {
+                    console.error("Критическая ошибка инициализации ленты:", err);
+                }
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initAboutText();
+            initDynamicQuotes();
+            showSection('about');
         });
     </script>
 
     <style>
-        /* Базовые сбросы стилей */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; overflow-x: hidden; }
 
-        /* ШАПКА */
         header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; position: relative; z-index: 10; }
         .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 500px; margin: 0 auto; }
         .logo-img { max-width: 160px; height: auto; display: block; margin-bottom: 15px; }
+        
         .logo h1 {
             font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; letter-spacing: -1px;
             color: #EBEBEB; text-transform: uppercase; line-height: 1; text-shadow: 4px 4px 0px #dd0000; margin-bottom: 30px;
@@ -120,16 +227,14 @@
         .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; line-height: 1.5; text-align: center; margin-bottom: 35px; padding: 0 10px; }
         .quote-box { font-size: 0.95rem; color: #8a8a8f; margin-bottom: 40px; font-style: italic; padding: 0 15px; min-height: 40px; }
 
-        /* Навигационная сетка */
-        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; width: 100%; max-width: 650px; margin: 0 auto 20px auto; }
+        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; width: 100%; max-width: 750px; margin: 0 auto 20px auto; }
         nav a {
             color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px;
-            padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.2s ease;
+            padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.2s ease; cursor: pointer;
         }
-        nav a:hover { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
+        nav a:hover, nav a.active { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
         .red-bar { width: 100%; height: 5px; background-color: #dd0000; position: relative; z-index: 10; }
 
-        /* АНИМИРОВАННЫЙ ФОН С ТВОЕЙ СЕТКОЙ */
         .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; }
         .animated-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.12; }
         .bg-grid {
@@ -139,36 +244,74 @@
         }
         @keyframes moveDiag { 0% { transform: translate(0, 0); } 100% { transform: translate(-65px, 65px); } }
 
-        .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; }
-        section { margin-bottom: 60px; }
+        .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; min-height: 500px; }
         .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; letter-spacing: 1px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
+        .grid-display { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; }
 
-        /* КАРТОЧКИ КОНТЕНТА */
-        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; transition: border-color 0.3s; }
+        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; max-height: 480px; display: flex; flex-direction: column; position: relative; transition: border-color 0.3s; }
         .card:hover { border-color: #dd0000; }
-        .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.4rem; text-transform: uppercase; margin-bottom: 12px; color: #dd0000; }
-        .card p { color: #bbb; font-size: 0.95rem; white-space: pre-wrap; }
+        .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; }
         
-        .text-post-card { display: flex; flex-direction: column; justify-content: space-between; }
+        .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
+        .scroll-content::-webkit-scrollbar { width: 6px; }
+        .scroll-content::-webkit-scrollbar-track { background: #121214; }
+        .scroll-content::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        .scroll-content::-webkit-scrollbar-thumb:hover { background: #dd0000; }
 
-        /* СТИЛИ ДЛЯ ВЫРАВНИВАНИЯ МЕДИА */
-        .media-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
+        .word-text { font-family: 'Times New Roman', Times, serif; font-size: 1.15rem; color: #e0e0e0; white-space: pre-wrap; line-height: 1.6; text-align: left; }
+        
+        .post-inline-link { color: #dd0000; font-weight: bold; text-decoration: none; border-bottom: 1px dashed #dd0000; transition: color 0.2s; }
+        .post-inline-link:hover { color: #ff3333; border-bottom-style: solid; }
+
+        .about-box { background: rgba(21, 21, 23, 0.95); border: 1px solid #2d2d30; padding: 35px; border-left: 4px solid #dd0000; }
+        .about-box p { font-size: 1.1rem; color: #bbb; margin-bottom: 15px; line-height: 1.7; text-align: left; }
+
+        .media-card { display: flex; flex-direction: column; align-items: center; }
         .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
-        .loaded-media { width: 100%; max-height: 350px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; }
+        .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 12px 0; display: block; }
+        .loaded-media { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; display: block; }
         .audio-player-custom { width: 100%; margin-bottom: 15px; outline: none; }
-        .media-text-bottom { width: 100%; text-align: left; color: #a0a0a5; }
 
-        .btn {
-            display: inline-block; margin-top: 10px; padding: 10px 20px; background-color: #dd0000; color: #000000;
-            text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s;
-        }
+        .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s; text-align: center; }
         .btn:hover { background-color: #ff1a1a; }
 
-        /* ФУТЕР */
-        footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 20px; text-align: center; position: relative; z-index: 10; }
-        .warning-text { color: #dd0000; font-size: 1.1rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; max-width: 700px; margin-left: auto; margin-right: auto; }
-        .copyright-text { color: #5a0000; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        /* ФУТЕР И ССЫЛКИ */
+        footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 25px; position: relative; z-index: 10; }
+        
+        .tg-links-container { max-width: 500px; margin: 0 auto 35px auto; display: flex; flex-direction: column; gap: 18px; }
+        
+        .tg-link-row { display: flex; align-items: center; gap: 15px; }
+        .tg-link-row .material-icons { color: #dd0000; font-size: 24px; flex-shrink: 0; }
+        
+        .tg-text-block { display: flex; flex-direction: column; text-align: left; }
+        .tg-label { color: #ffffff; font-size: 0.95rem; font-weight: bold; font-family: 'Montserrat', sans-serif; margin-bottom: 2px; }
+        .tg-url { color: #dd0000; text-decoration: none; font-size: 1.1rem; font-weight: 900; font-family: 'Montserrat', sans-serif; transition: color 0.2s; word-break: break-all; }
+        .tg-url:hover { color: #ff3333; text-decoration: underline; }
+
+        .new-disclaimer {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.15rem;
+            color: #dd0000;
+            letter-spacing: 0.5px;
+            max-width: 750px;
+            margin: 0 auto 25px auto;
+            line-height: 1.6;
+            text-align: left;
+            text-indent: 40px;
+        }
+        .disclaimer-title {
+            font-size: 1.3rem;
+            font-weight: 900;
+            display: block;
+            margin-bottom: 5px;
+            text-shadow: 1px 1px 0px #000;
+        }
+        .disclaimer-body {
+            font-weight: normal;
+            text-transform: none;
+        }
+        
+        .copyright-text { text-align: center; color: #444; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin-top: 20px; display: block; }
     </style>
 </head>
 <body>
@@ -180,17 +323,18 @@
                 <h1>ССБА</h1>
             </div>
             <p class="description">
-                мы некоммерческое марксистское объединение. Пишем новостные, научные и исторические статьи с целью образования и просвещения людей.
+                Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.
             </p>
             <div class="quote-box" id="quote-container">«Загрузка цитаты...» — Автор</div>
         </div>
 
         <nav>
-            <a href="#posts">Посты</a>
-            <a href="#photo">Фото</a>
-            <a href="#video">Видео</a>
-            <a href="#music">Музыка</a>
-            <a href="#books">Книги</a>
+            <a onclick="showSection('about')">О канале</a>
+            <a onclick="showSection('posts')">Посты</a>
+            <a onclick="showSection('photo')">Фото</a>
+            <a onclick="showSection('video')">Видео</a>
+            <a onclick="showSection('music')">Музыка</a>
+            <a onclick="showSection('books')">Книги</a>
         </nav>
     </header>
 
@@ -202,84 +346,55 @@
         </div>
 
         <div class="container">
-            <section id="posts">
-                <h2 class="section-title">Последние Посты</h2>
-                <div class="grid" id="posts-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Подключение к серверу ССБА...</p></div>
-                </div>
-            </section>
+            <h2 class="section-title" id="section-page-title">О канале</h2>
 
-            <section id="photo">
-                <h2 class="section-title">Фотогалерея</h2>
-                <div class="grid" id="photo-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка изображений...</p></div>
-                </div>
-            </section>
+            <div id="about-container" class="about-box">
+                <p id="dynamic-about-text">Загрузка информации о канале...</p>
+            </div>
 
-            <section id="video">
-                <h2 class="section-title">Видеоархив</h2>
-                <div class="grid" id="video-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка видеофайлов...</p></div>
-                </div>
-            </section>
-
-            <section id="music">
-                <h2 class="section-title">Музыкальный архив</h2>
-                <div class="grid" id="music-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка аудиозаписей...</p></div>
-                </div>
-            </section>
-
-            <section id="books">
-                <h2 class="section-title">Библиотека</h2>
-                <div class="grid" id="books-container">
-                    <div class="card"><p style="text-align:center; color:#666;">Загрузка литературы...</p></div>
-                </div>
-            </section>
+            <div id="dynamic-content-container" class="grid-display" style="display: none;"></div>
         </div>
     </div>
 
     <div class="red-bar"></div>
 
     <footer>
-        <div class="warning-text">
-            !ВНИМАНИЕ! Мы не имеем никакого отношения к граффити и нападениям.
+        <div class="tg-links-container">
+            
+            <div class="tg-link-row">
+                <i class="material-icons">link</i>
+                <div class="tg-text-block">
+                    <span class="tg-label">Наш канал (телеграмм):</span>
+                    <a href="https://t.me/Stalinhead" target="_blank" class="tg-url">https://t.me/Stalinhead</a>
+                </div>
+            </div>
+
+ <div class="tg-link-row">
+                <i class="material-icons">group_add</i>
+                <div class="tg-text-block">
+                    <span class="tg-label">Вступить в наши ряды:</span>
+                    <a href="https://t.me/Stalinhead?direct" target="_blank" class="tg-url">https://t.me/Stalinhead?direct</a>
+                </div>
+            </div>
+
+            <div class="tg-link-row">
+                <i class="material-icons">chat</i>
+                <div class="tg-text-block">
+                    <span class="tg-label">Пост в Telegram:</span>
+                    <a href="https://t.me/Stalinhead/4843" target="_blank" class="tg-url">https://t.me/Stalinhead/4843</a>
+                </div>
+            </div>
+
         </div>
-        <div class="copyright-text">
-            &copy; 2026 ССБА. Все права защищены.
+
+        <div class="new-disclaimer">
+            <span class="disclaimer-title">ДИСКЛЕЙМЕР:</span>
+            <span class="disclaimer-body">
+                Материалы сайта носят историко-архивный и публицистический характер. ССБА не призывает к противоправным действиям и не одобряет насилие, за исключением необходимой самообороны. 18+
+            </span>
         </div>
+
+        <span class="copyright-text">&copy; 2026 ССБА. Все права защищены.</span>
     </footer>
-
-    <script>
-        const quotes = [
-            { text: "Жить стало лучше, жить стало веселее.", author: "И. В. Сталин" },
-            { text: "Кадры решают всё.", author: "И. В. Сталин" },
-            { text: "Марксизм не догма, а руководство к действию.", author: "И. В. Сталин" },
-            { text: "Чтобы построить новый мир, нужно иметь знания, нужно освоить науку.", author: "И. В. Сталин" },
-            { text: "Учиться, учиться и еще раз учиться!", author: "В. И. Ленин" },
-            { text: "Государство — это аппарат насилия в руках господствующего класса.", author: "В. И. Ленин" },
-            { text: "Честность в политике есть результат силы, лицемерие — результат слабости.", author: "В. И. Ленин" },
-            { text: "Без революционной теории не может быть и революционного движения.", author: "В. И. Ленин" },
-            { text: "Винтовка рождает власть.", author: "Мао Цзэдун" },
-            { text: "История — это процесс борьбы между старым и новым.", author: "Мао Цзэдун" },
-            { text: "Всякая истина рождается из практики.", author: "Мао Цзэдун" },
-            { text: "Революция — это не званый обед.", author: "Мао Цзэдун" },
-            { text: "Философы лишь различным образом объясняли мир, но дело заключается в том, чтобы изменить его.", author: "Карл Маркс" },
-            { text: "Капитал боится отсутствия прибыли или слишком маленькой прибыли, как природа боится пустоты.", author: "Карл Маркс" },
-            { text: "Призрак бродит по Европе — призрак коммунизма.", author: "Карл Маркс" },
-            { text: "Бытие определяет сознание.", author: "Карл Маркс" },
-            { text: "Освобождение рабочего класса должно быть делом самого рабочего класса.", author: "Фридрих Энгельс" },
-            { text: "Труд создал самого человека.", author: "Фридрих Энгельс" },
-            { text: "Государство не отменяется, оно отмирает.", author: "Фридрих Энгельс" },
-            { text: "Грамм собственного опыта стоит дороже тонны чужой теории.", author: "Фридрих Энгельс" }
-        ];
-
-        function setRandomQuote() {
-            const randomIndex = Math.floor(Math.random() * quotes.length);
-            const selectedQuote = quotes[randomIndex];
-            document.getElementById("quote-container").innerHTML = `«${selectedQuote.text}» — ${selectedQuote.author}`;
-        }
-        window.onload = setRandomQuote;
-    </script>
 </body>
-                                        </html>
+</html>
