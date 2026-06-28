@@ -1,0 +1,15 @@
+User-agent: *
+
+# Разрешаем индексировать только главные страницы
+Allow: /$
+Allow: /index.html
+Allow: /home.html
+
+# Полностью запрещаем доступ к админ-панелям и цитатам
+Disallow: /secglv161.html
+Disallow: /addpostsec12.html
+Disallow: /citatafile.html
+
+# Запрещаем роботам смотреть любые другие скрытые файлы и системные папки
+Disallow: /
+
