@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ССБА — Панель цитат</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&display=swap" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, query, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
+            authDomain: "ssba-58900.firebaseapp.com",
+            databaseURL: "https://ssba-58900-default-rtdb.firebaseio.com",
+            projectId: "ssba-58900",
+            storageBucket: "ssba-58900.firebasestorage.app",
+            messagingSenderId: "615638249829",
+            appId: "1:615638249829:web:a68cd961fa79ebc7ef718c",
+            measurementId: "G-ZY8PQ2DXE3"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let currentEditQuoteId = "";
+
+        // Добавление новой цитаты
+        window.addQuote = async function() {
+            const text = document.getElementById("quote-text").value.trim();
+            const author = document.getElementById("quote-author").value.trim();
+
+            if (!text || !author) {
+                alert("Заполните текст цитаты и автора!");
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, "quotes"), {
+                    text: text,
+                    author: author
+                });
+                alert("Цитата успешно добавлена!");
+                document.getElementById("quote-text").value = "";
+                document.getElementById("quote-author").value = "";
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка при добавлении: " + e.message);
+            }
+        };
+
+        // Удаление цитаты
+        window.deleteQuote = async function(id) {
+            if (!confirm("Удалить эту цитату?")) return;
+            try {
+                await deleteDoc(doc(db, "quotes", id));
+                alert("Цитата удалена!");
+            } catch (e) {
+                console.error(e);
+            }
+        };
+
+        // Открытие модалки редактирования
+        window.openEditQuote = function(id, text, author) {
+            currentEditQuoteId = id;
+            document.getElementById("edit-q-text").value = text;
+            document.getElementById("edit-q-author").value = author;
+            document.getElementById("edit-modal").style.display = "flex";
+        };
+
+        window.closeEditModal = function() {
+            document.getElementById("edit-modal").style.display = "none";
+        };
+
+        // Сохранение изменений
+        window.saveQuoteChanges = async function() {
+            const updatedText = document.getElementById("edit-q-text").value.trim();
+            const updatedAuthor = document.getElementById("edit-q-author").value.trim();
+
+            if(!updatedText || !updatedAuthor) return alert("Поля не должны быть пустыми!");
+
+            try {
+                await updateDoc(doc(db, "quotes", currentEditQuoteId), {
+                    text: updatedText,
+                    author: updatedAuthor
+                });
+                alert("Цитата изменена!");
+                closeEditModal();
+            } catch (e) {
+                alert("Ошибка изменения: " + e.message);
+            }
+        };
+
+        // Загрузка и вывод цитат
+        window.addEventListener('DOMContentLoaded', () => {
+            onSnapshot(collection(db, "quotes"), (snapshot) => {
+                const container = document.getElementById("quotes-list-container");
+                if(snapshot.empty) {
+                    container.innerHTML = `<p style="color:#666; text-align:center;">Цитат пока нет.</p>`;
+                    return;
+                }
+                container.innerHTML = "";
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const id = doc.id;
+
+                    const safeText = (data.text || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    const safeAuthor = (data.author || "").replace(/'/g, "\\'").replace(/"/g, '\\"');
+
+                    container.innerHTML += `
+                        <div class="card">
+                            <div class="quote-preview">«${data.text}» — <span style="font-style: italic;">${data.author}</span></div>
+                            <div class="admin-actions">
+                                <button class="action-btn edit-btn" onclick="openEditQuote('${id}', '${safeText}', '${safeAuthor}')">Изменить</button>
+                                <button class="action-btn delete-btn" onclick="deleteQuote('${id}')">Удалить</button>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+        });
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; }
+        
+        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; }
+        .logo h1 {
+            font-family: 'Montserrat', sans-serif; font-size: 3.5rem; font-weight: 900;
+            color: #EBEBEB; text-transform: uppercase; text-shadow: 4px 4px 0px #dd0000; margin-bottom: 10px;
+        }
+        .secret-tag { color: #dd0000; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; font-size: 0.9rem; margin-bottom: 20px; }
+        
+        .red-bar { width: 100%; height: 5px; background-color: #dd0000; }
+        .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; padding: 50px 20px; }
+        
+        .container { max-width: 700px; margin: 0 auto; }
+        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; }
+        
+        .form-box { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 30px; margin-bottom: 40px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 0.85rem; color: #8a8a8f; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
+        .form-box input, .form-box textarea { width: 100%; background-color: #121214; border: 1px solid #2d2d30; color: #fff; padding: 14px; font-size: 1rem; }
+        .form-box input:focus, .form-box textarea:focus { outline: none; border-color: #dd0000; }
+        .form-box textarea { resize: vertical; min-height: 100px; }
+
+        .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 20px; display: flex; flex-direction: column; }
+        .quote-preview { font-size: 1.05rem; color: #e0e0e0; text-align: left; margin-bottom: 15px; line-height: 1.5; }
+
+        .action-btn { padding: 12px; font-weight: bold; text-transform: uppercase; font-size: 0.85rem; cursor: pointer; border: none; font-family: 'Arial', sans-serif; }
+        .save-btn { background-color: #dd0000; color: #000000; font-family: 'Montserrat', sans-serif; font-weight: 900; width: 100%; }
+        .admin-actions { display: flex; gap: 10px; border-top: 1px solid #2d2d30; padding-top: 15px; }
+        .edit-btn { background-color: #252528; color: #ffffff; border: 1px solid #444; flex: 1; }
+        .edit-btn:hover { border-color: #00ff00; color: #00ff00; }
+        .delete-btn { background-color: #2a1212; color: #ff5555; border: 1px solid #5a1a1a; flex: 1; }
+        .delete-btn:hover { background-color: #dd0000; color: #000000; }
+
+        .modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.85); z-index: 100; display: none; justify-content: center; align-items: center; padding: 20px; }
+        .modal-box { background-color: #1a1a1c; border: 1px solid #2d2d30; width: 100%; max-width: 550px; padding: 30px; }
+        .modal-box h2 { font-family: 'Montserrat', sans-serif; color: #dd0000; text-transform: uppercase; margin-bottom: 20px; font-size: 1.5rem; }
+        .modal-box input, .modal-box textarea { width: 100%; background-color: #121214; border: 1px solid #2d2d30; color: #fff; padding: 12px; font-size: 1rem; margin-bottom: 15px; }
+        .modal-buttons { display: flex; gap: 10px; }
+        .cancel-btn { background-color: #252528; color: #fff; flex: 1; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            <h1>ССБА</h1>
+        </div>
+        <div class="secret-tag">Управление Банком Цитат</div>
+    </header>
+
+    <div class="red-bar"></div>
+
+    <div class="main-content-wrapper">
+        <div class="container">
+            
+            <h2 class="section-title">Добавить цитату</h2>
+            <div class="form-box">
+                <div class="form-group">
+                    <label>Текст цитаты</label>
+                    <textarea id="quote-text" placeholder="Введите текст цитаты..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Автор цитаты</label>
+                    <input type="text" id="quote-author" placeholder="Например: И. В. Сталин">
+                </div>
+                <button type="button" class="action-btn save-btn" onclick="addQuote()">ГОТОВО // ДОБАВИТЬ</button>
+            </div>
+
+            <h2 class="section-title">Существующие цитаты</h2>
+            <div class="grid" id="quotes-list-container"></div>
+
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-modal">
+        <div class="modal-box">
+            <h2>Изменить цитату</h2>
+            <textarea id="edit-q-text"></textarea>
+            <input type="text" id="edit-q-author">
+            <div class="modal-buttons">
+                <button type="button" class="action-btn save-btn" style="flex: 1;" onclick="saveQuoteChanges()">СОХРАНИТЬ</button>
+                <button type="button" class="action-btn cancel-btn" onclick="closeEditModal()">ОТМЕНА</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
