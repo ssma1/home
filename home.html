@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ССБА — Официальный сайт</title>
+    <!-- Аватарка (иконка) сайта -->
+    <link rel="icon" type="image/png" href="ssma.png">
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
@@ -263,8 +266,9 @@
         .post-inline-link { color: #dd0000; font-weight: bold; text-decoration: none; border-bottom: 1px dashed #dd0000; transition: color 0.2s; }
         .post-inline-link:hover { color: #ff3333; border-bottom-style: solid; }
 
+        /* Изменено для отображения текста "О канале" шрифтом Times New Roman */
         .about-box { background: rgba(21, 21, 23, 0.95); border: 1px solid #2d2d30; padding: 35px; border-left: 4px solid #dd0000; }
-        .about-box p { font-size: 1.1rem; color: #bbb; margin-bottom: 15px; line-height: 1.7; text-align: left; }
+        .about-box p { font-family: 'Times New Roman', Times, serif; font-size: 1.25rem; color: #bbb; margin-bottom: 15px; line-height: 1.7; text-align: left; white-space: pre-wrap; }
 
         .media-card { display: flex; flex-direction: column; align-items: center; }
         .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
@@ -346,7 +350,7 @@
         </div>
 
         <div class="container">
-            <h2 class="section-title" id="section-page-title">О канале</h2>
+            <h2 class="section-title" id="section-page-title">ЧТО ТАКОЕ ССБА: КТО МЫ, ЗА ЧТО БОРЕМСЯ, ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО К НАМ И КАК ЭТО СДЕЛАТЬ:</h2>
 
             <div id="about-container" class="about-box">
                 <p id="dynamic-about-text">Загрузка информации о канале...</p>
@@ -360,8 +364,7 @@
 
     <footer>
         <div class="tg-links-container">
-            
-            <div class="tg-link-row">
+         <div class="tg-link-row">
                 <i class="material-icons">link</i>
                 <div class="tg-text-block">
                     <span class="tg-label">Наш канал (телеграмм):</span>
@@ -369,7 +372,7 @@
                 </div>
             </div>
 
- <div class="tg-link-row">
+            <div class="tg-link-row">
                 <i class="material-icons">group_add</i>
                 <div class="tg-text-block">
                     <span class="tg-label">Вступить в наши ряды:</span>
