@@ -32,19 +32,69 @@
 
         const viewedPosts = new Set();
 
-        window.registerView = async function(collectionName, docId) {
-            const uniqueKey = `${collectionName}_${docId}`;
-            if (viewedPosts.has(uniqueKey)) return;
-            viewedPosts.add(uniqueKey);
+        // ======= НАДЕЖНАЯ XSS ЗАЩИТА =======
+        // Функция для экранирования HTML-сущностей (экранирует всё, кроме разрешённых тегов)
+        function sanitizeHTML(unsafeText, allowTags = []) {
+            if (!unsafeText) return '';
+            
+            // Создаем временный элемент для безопасного экранирования
+            const temp = document.createElement('div');
+            temp.textContent = unsafeText;
+            let safe = temp.innerHTML;
+            
+            // Разрешаем только строго определённые теги
+            const allowedTagsMap = {
+                'a': true,
+                'b': true,
+                'i': true,
+                'u': true,
+                'strong': true,
+                'em': true,
+                'br': true,
+                'p': true,
+                'span': true,
+                'div': true
+            };
+            
+            // Если нужны специфические теги - добавляем
+            allowTags.forEach(tag => allowedTagsMap[tag] = true);
+            
+            // Удаляем все теги, кроме разрешённых
+            const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)\s*[^>]*>/g;
+            safe = safe.replace(tagRegex, (match, tagName) => {
+                const lowerTag = tagName.toLowerCase();
+                if (allowedTagsMap[lowerTag]) {
+                    // Для тега a разрешаем только href с безопасными протоколами
+                    if (lowerTag === 'a') {
+                        // Извлекаем href
+                        const hrefMatch = match.match(/href=["']([^"']*)["']/i);
+                        if (hrefMatch) {
+                            const url = hrefMatch[1];
+                            // Проверяем безопасные протоколы
+                            if (/^(https?:\/\/|mailto:|tel:)/i.test(url) || url.startsWith('/') || url.startsWith('#')) {
+                                return match; // Разрешаем
+                            }
+                            // Иначе заменяем на текст
+                            const textMatch = match.match(/>([^<]*)</);
+                            return textMatch ? textMatch[1] : '';
+                        }
+                        // Если нет href - возвращаем только текст
+                        const textMatch = match.match(/>([^<]*)</);
+                        return textMatch ? textMatch[1] : '';
+                    }
+                    return match; // Разрешаем другие допустимые теги
+                }
+                return ''; // Удаляем запрещённые теги
+            });
+            
+            // Удаляем потенциально опасные атрибуты (on*, javascript:)
+            safe = safe.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '');
+            safe = safe.replace(/javascript:/gi, '');
+            
+            return safe;
+        }
 
-            const docRef = doc(db, collectionName, docId);
-            try {
-                await updateDoc(docRef, { views: increment(1) });
-            } catch(e) { 
-                console.error("Ошибка фонового подсчета просмотров:", e); 
-            }
-        };
-
+        // Функция для безопасного парсинга контента с изображениями
         window.parseContent = function(text, mediaUrls, fallbackUrl) {
             let urls = [];
             if (mediaUrls && Array.isArray(mediaUrls)) {
@@ -53,44 +103,70 @@
                 urls = [fallbackUrl];
             }
             
-            let htmlText = text || "";
-
-            htmlText = htmlText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="post-inline-link">$1</a>');
-
+            // Экранируем весь текст
+            let htmlText = sanitizeHTML(text || "", ['p', 'br', 'span', 'div', 'strong', 'em', 'b', 'i', 'u']);
+            
+            // Безопасно обрабатываем ссылки [текст](url)
+            htmlText = htmlText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+                // Экранируем текст ссылки
+                const safeText = sanitizeHTML(linkText);
+                // Проверяем URL на безопасность
+                if (/^(https?:\/\/|mailto:|tel:)/i.test(url) || url.startsWith('/') || url.startsWith('#')) {
+                    return `<a href="${url}" target="_blank" class="post-inline-link" rel="noopener noreferrer">${safeText}</a>`;
+                }
+                return safeText; // Если URL опасный - показываем только текст
+            });
+            
+            // Безопасно вставляем изображения [imgN]
             let usedIndexes = new Set();
             htmlText = htmlText.replace(/\[img(\d+)\]/g, (match, num) => {
                 const idx = parseInt(num) - 1;
                 if (urls[idx]) {
                     usedIndexes.add(idx);
-                    return `<img src="${urls[idx]}" class="inline-post-img" alt="Фото">`;
+                    const safeUrl = sanitizeHTML(urls[idx]);
+                    return `<img src="${safeUrl}" class="inline-post-img" alt="Фото" loading="lazy">`;
                 }
                 return "";
             });
 
+            // Собираем верхние изображения
             let topImagesHtml = "";
             urls.forEach((url, idx) => {
                 if (!usedIndexes.has(idx)) {
-                    topImagesHtml += `<img src="${url}" class="inline-post-img" style="margin-bottom:15px;" alt="Фото">`;
+                    const safeUrl = sanitizeHTML(url);
+                    topImagesHtml += `<img src="${safeUrl}" class="inline-post-img" style="margin-bottom:15px;" alt="Фото" loading="lazy">`;
                 }
             });
 
             return topImagesHtml + `<div class="word-text">${htmlText}</div>`;
         };
 
-        // Загрузка динамического текста "О нас" из базы данных
+        // Функция для безопасной вставки текста в DOM
+        function safelySetTextContent(element, text) {
+            if (!element) return;
+            // Очищаем элемент и устанавливаем текст безопасно
+            element.textContent = '';
+            if (text) {
+                element.textContent = text;
+            }
+        }
+
+        // Загрузка динамического текста "О нас" из базы данных с защитой
         function initAboutText() {
             const aboutTextP = document.getElementById("dynamic-about-text");
             onSnapshot(doc(db, "about", "main_info"), (docSnap) => {
                 if (docSnap.exists() && docSnap.data().text) {
-                    aboutTextP.innerText = docSnap.data().text;
+                    // Используем textContent для безопасной вставки
+                    safelySetTextContent(aboutTextP, docSnap.data().text);
                 } else {
-                    aboutTextP.innerText = "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.";
+                    safelySetTextContent(aboutTextP, "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.");
                 }
             });
         }
 
-        // Загрузка динамических цитат из базы данных
+        // Загрузка динамических цитат с защитой
         async function initDynamicQuotes() {
+            const quoteContainer = document.getElementById("quote-container");
             try {
                 const querySnapshot = await getDocs(collection(db, "quotes"));
                 let loadedQuotes = [];
@@ -104,12 +180,16 @@
                 if (loadedQuotes.length > 0) {
                     const randomIndex = Math.floor(Math.random() * loadedQuotes.length);
                     const selected = loadedQuotes[randomIndex];
-                    document.getElementById("quote-container").innerHTML = `«${selected.text}» — ${selected.author}`;
+                    // Безопасно вставляем текст цитаты
+                    const safeText = sanitizeHTML(selected.text);
+                    const safeAuthor = sanitizeHTML(selected.author);
+                    safelySetTextContent(quoteContainer, `«${safeText}» — ${safeAuthor}`);
                 } else {
-                    document.getElementById("quote-container").innerHTML = `«Без революционной теории не может быть и революционного движения.» — В. И. Ленин`;
+                    safelySetTextContent(quoteContainer, `«Без революционной теории не может быть и революционного движения.» — В. И. Ленин`);
                 }
             } catch (err) {
                 console.error("Ошибка загрузки цитат:", err);
+                safelySetTextContent(quoteContainer, "«Без революционной теории не может быть и революционного движения.» — В. И. Ленин");
             }
         }
 
@@ -154,43 +234,60 @@
                             const data = docSnapshot.data();
                             const id = docSnapshot.id;
                             
+                            // Регистрируем просмотр
                             registerView(sectionId, id);
 
-                            const mediaUrl = data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "";
+                            // Безопасно получаем заголовок
+                            const title = data.title || "[Без заголовка]";
+                            const safeTitle = sanitizeHTML(title);
+                            
+                            // Безопасно получаем медиа URL
+                            const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
+                            const safeMediaUrl = sanitizeHTML(mediaUrl);
+
+                            // Парсим контент с защитой
+                            let parsedContent = "";
+                            if (sectionId === "posts" || sectionId === "photo" || sectionId === "books") {
+                                parsedContent = parseContent(data.text, data.mediaUrls, data.mediaUrl);
+                            } else if (sectionId === "video") {
+                                parsedContent = parseContent(data.text, null, null);
+                            } else if (sectionId === "music") {
+                                parsedContent = parseContent(data.text, null, null);
+                            }
 
                             if (sectionId === "posts" || sectionId === "photo") {
                                 finalHtml += `
                                     <div class="card">
-                                        <h3>${data.title || "[Без заголовка]"}</h3>
+                                        <h3>${safeTitle}</h3>
                                         <div class="scroll-content">
-                                            ${parseContent(data.text, data.mediaUrls, data.mediaUrl)}
+                                            ${parsedContent}
                                         </div>
                                     </div>`;
                             } else if (sectionId === "video") {
                                 finalHtml += `
                                     <div class="card media-card">
-                                        <h3 class="media-title-center">${data.title || "[Без заголовка]"}</h3>
+                                        <h3 class="media-title-center">${safeTitle}</h3>
                                         <div class="scroll-content" style="width: 100%;">
-                                            ${mediaUrl ? `<video src="${mediaUrl}" controls class="loaded-media"></video>` : ''}
-                                            ${parseContent(data.text, null, null)}
+                                            ${safeMediaUrl ? `<video src="${safeMediaUrl}" controls class="loaded-media"></video>` : ''}
+                                            ${parsedContent}
                                         </div>
                                     </div>`;
                             } else if (sectionId === "music") {
                                 finalHtml += `
                                     <div class="card media-card">
-                                        <h3 class="media-title-center">${data.title || "[Без заголовка]"}</h3>
+                                        <h3 class="media-title-center">${safeTitle}</h3>
                                         <div class="scroll-content" style="width: 100%;">
-                                            ${mediaUrl ? `<audio src="${mediaUrl}" controls class="audio-player-custom"></audio>` : ''}
-                                            ${parseContent(data.text, null, null)}
+                                            ${safeMediaUrl ? `<audio src="${safeMediaUrl}" controls class="audio-player-custom"></audio>` : ''}
+                                            ${parsedContent}
                                         </div>
                                     </div>`;
                             } else if (sectionId === "books") {
                                 finalHtml += `
                                     <div class="card">
-                                        <h3>${data.title || "[Без заголовка]"}</h3>
+                                        <h3>${safeTitle}</h3>
                                         <div class="scroll-content">
-                                            ${parseContent(data.text, null, null)}
-                                            ${mediaUrl ? `<a href="${mediaUrl}" target="_blank" class="btn" style="margin-top:15px;">Скачать / Читать</a>` : ''}
+                                            ${parsedContent}
+                                            ${safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn" style="margin-top:15px;" rel="noopener noreferrer">Скачать / Читать</a>` : ''}
                                         </div>
                                     </div>`;
                             }
@@ -205,6 +302,20 @@
                 } catch (err) {
                     console.error("Критическая ошибка инициализации ленты:", err);
                 }
+            }
+        };
+
+        // Функция для регистрации просмотра с защитой
+        window.registerView = async function(collectionName, docId) {
+            const uniqueKey = `${collectionName}_${docId}`;
+            if (viewedPosts.has(uniqueKey)) return;
+            viewedPosts.add(uniqueKey);
+
+            const docRef = doc(db, collectionName, docId);
+            try {
+                await updateDoc(docRef, { views: increment(1) });
+            } catch(e) { 
+                console.error("Ошибка фонового подсчета просмотров:", e); 
             }
         };
 
@@ -255,7 +366,7 @@
         .card:hover { border-color: #dd0000; }
         .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; }
         
-        .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
+                .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
         .scroll-content::-webkit-scrollbar { width: 6px; }
         .scroll-content::-webkit-scrollbar-track { background: #121214; }
         .scroll-content::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
@@ -266,7 +377,6 @@
         .post-inline-link { color: #dd0000; font-weight: bold; text-decoration: none; border-bottom: 1px dashed #dd0000; transition: color 0.2s; }
         .post-inline-link:hover { color: #ff3333; border-bottom-style: solid; }
 
-        /* Изменено для отображения текста "О канале" шрифтом Times New Roman */
         .about-box { background: rgba(21, 21, 23, 0.95); border: 1px solid #2d2d30; padding: 35px; border-left: 4px solid #dd0000; }
         .about-box p { font-family: 'Times New Roman', Times, serif; font-size: 1.25rem; color: #bbb; margin-bottom: 15px; line-height: 1.7; text-align: left; white-space: pre-wrap; }
 
@@ -279,7 +389,6 @@
         .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s; text-align: center; }
         .btn:hover { background-color: #ff1a1a; }
 
-        /* ФУТЕР И ССЫЛКИ */
         footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 25px; position: relative; z-index: 10; }
         
         .tg-links-container { max-width: 500px; margin: 0 auto 35px auto; display: flex; flex-direction: column; gap: 18px; }
@@ -376,7 +485,7 @@
                 <i class="material-icons">link</i>
                 <div class="tg-text-block">
                     <span class="tg-label">Наш канал (телеграмм):</span>
-                    <a href="https://t.me/Stalinhead" target="_blank" class="tg-url">https://t.me/Stalinhead</a>
+                    <a href="https://t.me/Stalinhead" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead</a>
                 </div>
             </div>
 
@@ -384,7 +493,7 @@
                 <i class="material-icons">group_add</i>
                 <div class="tg-text-block">
                     <span class="tg-label">Вступить в наши ряды:</span>
-                    <a href="https://t.me/Stalinhead?direct" target="_blank" class="tg-url">https://t.me/Stalinhead?direct</a>
+                    <a href="https://t.me/Stalinhead?direct" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead?direct</a>
                 </div>
             </div>
 
@@ -392,10 +501,9 @@
                 <i class="material-icons">chat</i>
                 <div class="tg-text-block">
                     <span class="tg-label">Пост в Telegram:</span>
-                    <a href="https://t.me/Stalinhead/4843" target="_blank" class="tg-url">https://t.me/Stalinhead/4843</a>
+                    <a href="https://t.me/Stalinhead/4843" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead/4843</a>
                 </div>
             </div>
-
         </div>
 
         <div class="new-disclaimer">
@@ -409,4 +517,3 @@
     </footer>
 </body>
 </html>
-         
