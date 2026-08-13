@@ -14,7 +14,7 @@
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDocs, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
@@ -31,70 +31,69 @@
         const db = getFirestore(app);
 
         const viewedPosts = new Set();
+        let currentLang = 'ru'; 
+        const translationCache = new Map();
+        let currentSectionId = 'about';
 
         // ======= НАДЕЖНАЯ XSS ЗАЩИТА =======
-        // Функция для экранирования HTML-сущностей (экранирует всё, кроме разрешённых тегов)
-        function sanitizeHTML(unsafeText, allowTags = []) {
-            if (!unsafeText) return '';
-            
-            // Создаем временный элемент для безопасного экранирования
-            const temp = document.createElement('div');
-            temp.textContent = unsafeText;
-            let safe = temp.innerHTML;
-            
-            // Разрешаем только строго определённые теги
-            const allowedTagsMap = {
-                'a': true,
-                'b': true,
-                'i': true,
-                'u': true,
-                'strong': true,
-                'em': true,
-                'br': true,
-                'p': true,
-                'span': true,
-                'div': true
-            };
-            
-            // Если нужны специфические теги - добавляем
-            allowTags.forEach(tag => allowedTagsMap[tag] = true);
-            
-            // Удаляем все теги, кроме разрешённых
-            const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)\s*[^>]*>/g;
-            safe = safe.replace(tagRegex, (match, tagName) => {
-                const lowerTag = tagName.toLowerCase();
-                if (allowedTagsMap[lowerTag]) {
-                    // Для тега a разрешаем только href с безопасными протоколами
-                    if (lowerTag === 'a') {
-                        // Извлекаем href
-                        const hrefMatch = match.match(/href=["']([^"']*)["']/i);
-                        if (hrefMatch) {
-                            const url = hrefMatch[1];
-                            // Проверяем безопасные протоколы
-                            if (/^(https?:\/\/|mailto:|tel:)/i.test(url) || url.startsWith('/') || url.startsWith('#')) {
-                                return match; // Разрешаем
-                            }
-                            // Иначе заменяем на текст
-                            const textMatch = match.match(/>([^<]*)</);
-                            return textMatch ? textMatch[1] : '';
-                        }
-                        // Если нет href - возвращаем только текст
-                        const textMatch = match.match(/>([^<]*)</);
-                        return textMatch ? textMatch[1] : '';
-                    }
-                    return match; // Разрешаем другие допустимые теги
-                }
-                return ''; // Удаляем запрещённые теги
-            });
-            
-            // Удаляем потенциально опасные атрибуты (on*, javascript:)
-            safe = safe.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '');
-            safe = safe.replace(/javascript:/gi, '');
-            
-            return safe;
+        function escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
 
-        // Функция для безопасного парсинга контента с изображениями
+        function isValidURL(url) {
+            if (!url) return false;
+            try {
+                const parsed = new URL(url, window.location.origin);
+                return ['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol) || url.startsWith('/') || url.startsWith('#');
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // ======= БЕСПЛАТНЫЙ И НЕОГРАНИЧЕННЫЙ ПЕРЕВОДЧИК =======
+        async function fetchTranslation(text, targetLang = 'en') {
+            if (!text || !text.trim()) return text;
+            const cacheKey = `${targetLang}:${text}`;
+            if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
+
+            const chunks = text.match(/[\s\S]{1,400}(?=\s|$)/g) || [text];
+            let translatedParts = [];
+
+            for (const chunk of chunks) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 секунд таймаут на чанк
+
+                    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(chunk)}`;
+                    const res = await fetch(url, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+
+                    const data = await res.json();
+                    
+                    if (data && data[0]) {
+                        const chunkResult = data[0].map(item => item[0]).join('');
+                        translatedParts.push(chunkResult);
+                    } else {
+                        translatedParts.push(chunk);
+                    }
+                } catch (e) {
+                    console.error("Ошибка при переводе кусочка:", e);
+                    translatedParts.push(chunk);
+                }
+            }
+
+            const result = translatedParts.join(' ');
+            translationCache.set(cacheKey, result);
+            return result;
+        }
+
+        // Парсинг текста постов
         window.parseContent = function(text, mediaUrls, fallbackUrl) {
             let urls = [];
             if (mediaUrls && Array.isArray(mediaUrls)) {
@@ -103,68 +102,67 @@
                 urls = [fallbackUrl];
             }
             
-            // Экранируем весь текст
-            let htmlText = sanitizeHTML(text || "", ['p', 'br', 'span', 'div', 'strong', 'em', 'b', 'i', 'u']);
+            let safeText = escapeHTML(text || "");
             
-            // Безопасно обрабатываем ссылки [текст](url)
-            htmlText = htmlText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
-                // Экранируем текст ссылки
-                const safeText = sanitizeHTML(linkText);
-                // Проверяем URL на безопасность
-                if (/^(https?:\/\/|mailto:|tel:)/i.test(url) || url.startsWith('/') || url.startsWith('#')) {
-                    return `<a href="${url}" target="_blank" class="post-inline-link" rel="noopener noreferrer">${safeText}</a>`;
+            safeText = safeText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+                const cleanUrl = url.trim();
+                if (isValidURL(cleanUrl)) {
+                    return `<a href="${escapeHTML(cleanUrl)}" target="_blank" class="post-inline-link" rel="noopener noreferrer">${linkText}</a>`;
                 }
-                return safeText; // Если URL опасный - показываем только текст
+                return linkText;
             });
             
-            // Безопасно вставляем изображения [imgN]
             let usedIndexes = new Set();
-            htmlText = htmlText.replace(/\[img(\d+)\]/g, (match, num) => {
+            safeText = safeText.replace(/\[img(\d+)\]/g, (match, num) => {
                 const idx = parseInt(num) - 1;
-                if (urls[idx]) {
+                if (urls[idx] && isValidURL(urls[idx])) {
                     usedIndexes.add(idx);
-                    const safeUrl = sanitizeHTML(urls[idx]);
+                    const safeUrl = escapeHTML(urls[idx]);
                     return `<img src="${safeUrl}" class="inline-post-img" alt="Фото" loading="lazy">`;
                 }
                 return "";
             });
 
-            // Собираем верхние изображения
             let topImagesHtml = "";
             urls.forEach((url, idx) => {
-                if (!usedIndexes.has(idx)) {
-                    const safeUrl = sanitizeHTML(url);
+                if (!usedIndexes.has(idx) && isValidURL(url)) {
+                    const safeUrl = escapeHTML(url);
                     topImagesHtml += `<img src="${safeUrl}" class="inline-post-img" style="margin-bottom:15px;" alt="Фото" loading="lazy">`;
                 }
             });
 
-            return topImagesHtml + `<div class="word-text">${htmlText}</div>`;
+            return topImagesHtml + `<div class="word-text" data-original="${escapeHTML(text || "")}">${safeText}</div>`;
         };
 
-        // Функция для безопасной вставки текста в DOM
         function safelySetTextContent(element, text) {
             if (!element) return;
-            // Очищаем элемент и устанавливаем текст безопасно
-            element.textContent = '';
-            if (text) {
-                element.textContent = text;
-            }
+            element.textContent = text || '';
+            element.setAttribute('data-original', text || '');
         }
 
-        // Загрузка динамического текста "О нас" из базы данных с защитой
         function initAboutText() {
             const aboutTextP = document.getElementById("dynamic-about-text");
-            onSnapshot(doc(db, "about", "main_info"), (docSnap) => {
-                if (docSnap.exists() && docSnap.data().text) {
-                    // Используем textContent для безопасной вставки
-                    safelySetTextContent(aboutTextP, docSnap.data().text);
-                } else {
+            
+            // Таймаут для защиты от вечной загрузки "О нас"
+            const loadTimeout = setTimeout(() => {
+                if (aboutTextP.textContent.includes("Загрузка")) {
                     safelySetTextContent(aboutTextP, "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.");
                 }
+            }, 5000);
+
+            onSnapshot(doc(db, "about", "main_info"), (docSnap) => {
+                clearTimeout(loadTimeout);
+                const text = (docSnap.exists() && docSnap.data().text) 
+                    ? docSnap.data().text 
+                    : "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.";
+                safelySetTextContent(aboutTextP, text);
+                if (currentLang === 'en') applyLanguage('en');
+            }, (err) => {
+                clearTimeout(loadTimeout);
+                safelySetTextContent(aboutTextP, "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.");
             });
         }
 
-        // Загрузка динамических цитат с защитой
         async function initDynamicQuotes() {
             const quoteContainer = document.getElementById("quote-container");
             try {
@@ -180,21 +178,124 @@
                 if (loadedQuotes.length > 0) {
                     const randomIndex = Math.floor(Math.random() * loadedQuotes.length);
                     const selected = loadedQuotes[randomIndex];
-                    // Безопасно вставляем текст цитаты
-                    const safeText = sanitizeHTML(selected.text);
-                    const safeAuthor = sanitizeHTML(selected.author);
-                    safelySetTextContent(quoteContainer, `«${safeText}» — ${safeAuthor}`);
+                    safelySetTextContent(quoteContainer, `«${selected.text}» — ${selected.author}`);
                 } else {
                     safelySetTextContent(quoteContainer, `«Без революционной теории не может быть и революционного движения.» — В. И. Ленин`);
                 }
             } catch (err) {
-                console.error("Ошибка загрузки цитат:", err);
                 safelySetTextContent(quoteContainer, "«Без революционной теории не может быть и революционного движения.» — В. И. Ленин");
             }
         }
 
+        // Функция переключения языка
+        window.switchLanguage = async function(lang) {
+            if (currentLang === lang) return;
+            currentLang = lang;
+
+            const langBtns = document.querySelectorAll('.lang-btn');
+            langBtns.forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
+                btn.disabled = true; // Блокируем кнопки во время перевода
+            });
+
+            await applyLanguage(lang);
+
+            langBtns.forEach(btn => btn.disabled = false);
+        };
+
+        async function applyLanguage(lang) {
+            const translatableElements = document.querySelectorAll('.card h3, .word-text, #dynamic-about-text');
+            
+            if (lang === 'en') {
+                // Показываем плашку/текст загрузки перевода
+                translatableElements.forEach(el => {
+                    el.classList.add('translating-pulse');
+                    el.setAttribute('data-pre-trans', el.textContent);
+                    el.textContent = "Translating...";
+                });
+            }
+
+            for (const el of translatableElements) {
+                const originalText = el.getAttribute('data-original') || el.getAttribute('data-pre-trans') || el.textContent;
+                
+                if (!el.getAttribute('data-original') && originalText !== "Translating...") {
+                    el.setAttribute('data-original', originalText);
+                }
+
+                if (lang === 'ru') {
+                    el.classList.remove('translating-pulse');
+                    el.textContent = originalText;
+                } else if (lang === 'en') {
+                    const translated = await fetchTranslation(originalText, 'en');
+                    el.classList.remove('translating-pulse');
+                    el.textContent = translated;
+                }
+            }
+        }
+
+        window.initCustomAudioPlayer = function(container) {
+            const player = container.querySelector('.custom-audio-player');
+            if (!player) return;
+
+            const audio = player.querySelector('audio');
+            const playBtn = player.querySelector('.play-btn');
+            const playIcon = playBtn.querySelector('.material-icons');
+            const progressBar = player.querySelector('.progress-bar');
+            const progressFill = player.querySelector('.progress-fill');
+            const timeDisplay = player.querySelector('.time-display');
+            const volumeBtn = player.querySelector('.volume-btn');
+            const volumeIcon = volumeBtn.querySelector('.material-icons');
+
+            function formatTime(seconds) {
+                if (isNaN(seconds)) return "00:00";
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            }
+
+            playBtn.addEventListener('click', () => {
+                if (audio.paused) {
+                    document.querySelectorAll('audio').forEach(a => {
+                        if (a !== audio) a.pause();
+                    });
+                    audio.play();
+                } else {
+                    audio.pause();
+                }
+            });
+
+            audio.addEventListener('play', () => { playIcon.textContent = 'pause'; });
+            audio.addEventListener('pause', () => { playIcon.textContent = 'play_arrow'; });
+
+            audio.addEventListener('timeupdate', () => {
+                const percent = (audio.currentTime / audio.duration) * 100;
+                progressFill.style.width = `${percent || 0}%`;
+                timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+            });
+
+            audio.addEventListener('loadedmetadata', () => {
+                timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`;
+            });
+
+            progressBar.addEventListener('click', (e) => {
+                const rect = progressBar.getBoundingClientRect();
+                const pos = (e.clientX - rect.left) / rect.width;
+                audio.currentTime = pos * audio.duration;
+            });
+
+            volumeBtn.addEventListener('click', () => {
+                audio.muted = !audio.muted;
+                volumeIcon.textContent = audio.muted ? 'volume_off' : 'volume_up';
+            });
+        };
+
         let currentUnsubscribe = null;
+        let renderedDocIds = new Set();
+        let sectionFetchTimeout = null;
+
         window.showSection = function(sectionId) {
+            currentSectionId = sectionId;
+
             document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
             const activeLink = document.querySelector(`nav a[onclick*="${sectionId}"]`);
             if (activeLink) activeLink.classList.add('active');
@@ -203,11 +304,21 @@
             const dynamicContainer = document.getElementById('dynamic-content-container');
             dynamicContainer.style.display = 'none';
 
-            if (currentUnsubscribe) { currentUnsubscribe(); currentUnsubscribe = null; }
+            if (currentUnsubscribe) { 
+                currentUnsubscribe(); 
+                currentUnsubscribe = null; 
+            }
+            if (sectionFetchTimeout) {
+                clearTimeout(sectionFetchTimeout);
+                sectionFetchTimeout = null;
+            }
+
+            renderedDocIds.clear();
 
             if (sectionId === 'about') {
                 document.getElementById('section-page-title').innerText = "О канале";
                 document.getElementById('about-container').style.display = 'block';
+                if (currentLang === 'en') applyLanguage('en');
             } else {
                 dynamicContainer.style.display = 'grid';
                 let titleText = "";
@@ -218,94 +329,136 @@
                 if (sectionId === "books") titleText = "Библиотека";
 
                 document.getElementById('section-page-title').innerText = titleText;
-                dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">Загрузка публикаций раздела...</p></div>`;
+                dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Загрузка публикаций раздела...</p></div>`;
+
+                // УСТРАНЕНИЕ БАГА ВЕЧНОЙ ЗАГРУЗКИ: Защитный таймаут на 8 секунд
+                sectionFetchTimeout = setTimeout(() => {
+                    if (dynamicContainer.innerHTML.includes("Загрузка публикаций")) {
+                        dynamicContainer.innerHTML = `
+                            <div class="card" style="grid-column: 1 / -1; text-align:center;">
+                                <p style="color:#ff3333; margin-bottom:15px;">Не удалось загрузить данные (превышено время ожидания).</p>
+                                <button class="btn" onclick="showSection('${sectionId}')">Повторить попытку</button>
+                            </div>`;
+                    }
+                }, 8000);
 
                 try {
                     const q = query(collection(db, sectionId), orderBy("createdAt", "desc"));
+                    
                     currentUnsubscribe = onSnapshot(q, (snapshot) => {
+                        if (sectionFetchTimeout) {
+                            clearTimeout(sectionFetchTimeout);
+                            sectionFetchTimeout = null;
+                        }
+
                         if (snapshot.empty) {
                             dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
+                            renderedDocIds.clear();
                             return;
                         }
                         
-                        let finalHtml = "";
-                        
-                        snapshot.forEach((docSnapshot) => {
-                            const data = docSnapshot.data();
-                            const id = docSnapshot.id;
-                            
-                            // Регистрируем просмотр
-                            registerView(sectionId, id);
+                        const currentIds = snapshot.docs.map(doc => doc.id);
+                        const isStructureChanged = currentIds.length !== renderedDocIds.size || 
+                            !currentIds.every(id => renderedDocIds.has(id));
 
-                            // Безопасно получаем заголовок
-                            const title = data.title || "[Без заголовка]";
-                            const safeTitle = sanitizeHTML(title);
-                            
-                            // Безопасно получаем медиа URL
-                            const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
-                            const safeMediaUrl = sanitizeHTML(mediaUrl);
+                        if (isStructureChanged) {
+                            let finalHtml = "";
+                            renderedDocIds.clear();
 
-                            // Парсим контент с защитой
-                            let parsedContent = "";
-                            if (sectionId === "posts" || sectionId === "photo" || sectionId === "books") {
-                                parsedContent = parseContent(data.text, data.mediaUrls, data.mediaUrl);
-                            } else if (sectionId === "video") {
-                                parsedContent = parseContent(data.text, null, null);
-                            } else if (sectionId === "music") {
-                                parsedContent = parseContent(data.text, null, null);
+                            snapshot.forEach((docSnapshot) => {
+                                const data = docSnapshot.data();
+                                const id = docSnapshot.id;
+                                renderedDocIds.add(id);
+                                
+                                registerView(sectionId, id);
+
+                                const title = data.title || "[Без заголовка]";
+                                const safeTitle = escapeHTML(title);
+                                const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
+                                const safeMediaUrl = isValidURL(mediaUrl) ? escapeHTML(mediaUrl) : "";
+
+                                let parsedContent = "";
+                                if (sectionId === "posts" || sectionId === "photo" || sectionId === "books") {
+                                    parsedContent = parseContent(data.text, data.mediaUrls, data.mediaUrl);
+                                } else {
+                                    parsedContent = parseContent(data.text, null, null);
+                                }
+
+                                if (sectionId === "posts" || sectionId === "photo") {
+                                    finalHtml += `
+                                        <div class="card" data-id="${id}">
+                                            <h3 data-original="${safeTitle}">${safeTitle}</h3>
+                                            <div class="scroll-content">
+                                                ${parsedContent}
+                                            </div>
+                                        </div>`;
+                                } else if (sectionId === "video") {
+                                    finalHtml += `
+                                        <div class="card media-card" data-id="${id}">
+                                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
+                                            <div class="scroll-content" style="width: 100%;">
+                                                ${safeMediaUrl ? `<video src="${safeMediaUrl}" controls preload="metadata" class="loaded-media"></video>` : ''}
+                                                ${parsedContent}
+                                            </div>
+                                        </div>`;
+                                } else if (sectionId === "music") {
+                                    finalHtml += `
+                                        <div class="card media-card" data-id="${id}">
+                                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
+                                            <div class="scroll-content" style="width: 100%;">
+                                                ${safeMediaUrl ? `
+                                                    <div class="custom-audio-player">
+                                                        <audio src="${safeMediaUrl}" preload="metadata"></audio>
+                                                        <button class="play-btn" type="button"><i class="material-icons">play_arrow</i></button>
+                                                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                                                        <span class="time-display">00:00 / 00:00</span>
+                                                        <button class="volume-btn" type="button"><i class="material-icons">volume_up</i></button>
+                                                    </div>
+                                                ` : ''}
+                                                ${parsedContent}
+                                            </div>
+                                        </div>`;
+                                } else if (sectionId === "books") {
+                                    finalHtml += `
+                                        <div class="card" data-id="${id}">
+                                            <h3 data-original="${safeTitle}">${safeTitle}</h3>
+                                            <div class="scroll-content">
+                                                ${parsedContent}
+                                                ${safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn" style="margin-top:15px;" rel="noopener noreferrer">Скачать / Читать</a>` : ''}
+                                            </div>
+                                        </div>`;
+                                }
+                            });
+                            
+                            dynamicContainer.innerHTML = finalHtml;
+
+                            if (sectionId === "music") {
+                                dynamicContainer.querySelectorAll('.card').forEach(card => {
+                                    window.initCustomAudioPlayer(card);
+                                });
                             }
 
-                            if (sectionId === "posts" || sectionId === "photo") {
-                                finalHtml += `
-                                    <div class="card">
-                                        <h3>${safeTitle}</h3>
-                                        <div class="scroll-content">
-                                            ${parsedContent}
-                                        </div>
-                                    </div>`;
-                            } else if (sectionId === "video") {
-                                finalHtml += `
-                                    <div class="card media-card">
-                                        <h3 class="media-title-center">${safeTitle}</h3>
-                                        <div class="scroll-content" style="width: 100%;">
-                                            ${safeMediaUrl ? `<video src="${safeMediaUrl}" controls class="loaded-media"></video>` : ''}
-                                            ${parsedContent}
-                                        </div>
-                                    </div>`;
-                            } else if (sectionId === "music") {
-                                finalHtml += `
-                                    <div class="card media-card">
-                                        <h3 class="media-title-center">${safeTitle}</h3>
-                                        <div class="scroll-content" style="width: 100%;">
-                                            ${safeMediaUrl ? `<audio src="${safeMediaUrl}" controls class="audio-player-custom"></audio>` : ''}
-                                            ${parsedContent}
-                                        </div>
-                                    </div>`;
-                            } else if (sectionId === "books") {
-                                finalHtml += `
-                                    <div class="card">
-                                        <h3>${safeTitle}</h3>
-                                        <div class="scroll-content">
-                                            ${parsedContent}
-                                            ${safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn" style="margin-top:15px;" rel="noopener noreferrer">Скачать / Читать</a>` : ''}
-                                        </div>
-                                    </div>`;
+                            if (currentLang === 'en') {
+                                applyLanguage('en');
                             }
-                        });
-                        
-                        dynamicContainer.innerHTML = finalHtml;
+                        }
                         
                     }, (error) => {
                         console.error("Ошибка Firestore:", error);
-                        dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#ff0000;">Ошибка загрузки данных.</p></div>`;
+                        if (sectionFetchTimeout) clearTimeout(sectionFetchTimeout);
+                        dynamicContainer.innerHTML = `
+                            <div class="card" style="grid-column: 1 / -1; text-align:center;">
+                                <p style="color:#ff3333; margin-bottom:15px;">Ошибка загрузки данных из сети.</p>
+                                <button class="btn" onclick="showSection('${sectionId}')">Обновить</button>
+                            </div>`;
                     });
                 } catch (err) {
                     console.error("Критическая ошибка инициализации ленты:", err);
+                    dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#ff0000;">Произошла ошибка системы.</p></div>`;
                 }
             }
         };
 
-        // Функция для регистрации просмотра с защитой
         window.registerView = async function(collectionName, docId) {
             const uniqueKey = `${collectionName}_${docId}`;
             if (viewedPosts.has(uniqueKey)) return;
@@ -359,14 +512,74 @@
         @keyframes moveDiag { 0% { transform: translate(0, 0); } 100% { transform: translate(-65px, 65px); } }
 
         .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; min-height: 500px; }
-        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; margin-bottom: 30px; letter-spacing: 1px; }
+        
+        .section-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            gap: 20px;
+        }
+        .section-title { 
+            font-family: 'Montserrat', sans-serif; 
+            font-size: 2.2rem; 
+            text-transform: uppercase; 
+            border-left: 6px solid #dd0000; 
+            padding-left: 15px; 
+            letter-spacing: 1px; 
+            margin-bottom: 0;
+        }
+
+        .lang-switch-box {
+            display: flex;
+            background: #1a1a1c;
+            border: 1px solid #2d2d30;
+            padding: 2px;
+            flex-shrink: 0;
+        }
+
+        .lang-btn {
+            background: transparent;
+            border: none;
+            color: #8a8a8f;
+            padding: 8px 14px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.85rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .lang-btn.active {
+            background: #dd0000;
+            color: #000000;
+        }
+
+        .lang-btn:disabled {
+            opacity: 0.5;
+            cursor: wait;
+        }
+
+        /* АНИМАЦИЯ И СТИЛИ ИНДИКАТОРА ЗАГРУЗКИ ПЕРЕВОДА */
+        .translating-pulse {
+            opacity: 0.6;
+            animation: pulseText 1.2s infinite ease-in-out;
+            font-style: italic;
+        }
+
+        @keyframes pulseText {
+            0% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+            100% { opacity: 0.3; }
+        }
+
         .grid-display { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; }
 
         .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; max-height: 480px; display: flex; flex-direction: column; position: relative; transition: border-color 0.3s; }
         .card:hover { border-color: #dd0000; }
         .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; }
         
-                .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
+        .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
         .scroll-content::-webkit-scrollbar { width: 6px; }
         .scroll-content::-webkit-scrollbar-track { background: #121214; }
         .scroll-content::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
@@ -384,9 +597,71 @@
         .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
         .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 12px 0; display: block; }
         .loaded-media { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; display: block; }
-        .audio-player-custom { width: 100%; margin-bottom: 15px; outline: none; }
 
-        .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s; text-align: center; }
+        /* КАСТОМНЫЙ АУДИОПЛЕЕР */
+        .custom-audio-player {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #121214;
+            border: 1px solid #dd0000;
+            padding: 10px 14px;
+            margin-bottom: 15px;
+            width: 100%;
+        }
+
+        .custom-audio-player audio { display: none; }
+
+        .custom-audio-player .play-btn,
+        .custom-audio-player .volume-btn {
+            background: #dd0000;
+            border: none;
+            color: #000000;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            flex-shrink: 0;
+        }
+
+        .custom-audio-player .play-btn:hover,
+        .custom-audio-player .volume-btn:hover {
+            background: #ff3333;
+        }
+
+        .custom-audio-player .play-btn .material-icons,
+        .custom-audio-player .volume-btn .material-icons {
+            font-size: 20px;
+        }
+
+        .custom-audio-player .progress-bar {
+            flex-grow: 1;
+            height: 6px;
+            background: #2d2d30;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .custom-audio-player .progress-fill {
+            height: 100%;
+            background: #dd0000;
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .custom-audio-player .time-display {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.75rem;
+            color: #a0a0a5;
+            min-width: 85px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s; text-align: center; cursor: pointer; border: none; }
         .btn:hover { background-color: #ff1a1a; }
 
         footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 25px; position: relative; z-index: 10; }
@@ -467,7 +742,13 @@
         </div>
 
         <div class="container">
-            <h2 class="section-title" id="section-page-title">ЧТО ТАКОЕ ССБА: КТО МЫ, ЗА ЧТО БОРЕМСЯ, ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО К НАМ И КАК ЭТО СДЕЛАТЬ:</h2>
+            <div class="section-header-row">
+                <h2 class="section-title" id="section-page-title">ЧТО ТАКОЕ ССБА: КТО МЫ, ЗА ЧТО БОРЕМСЯ, ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО К НАМ И КАК ЭТО СДЕЛАТЬ:</h2>
+                <div class="lang-switch-box">
+                    <button class="lang-btn active" data-lang="ru" onclick="switchLanguage('ru')">RU</button>
+                    <button class="lang-btn" data-lang="en" onclick="switchLanguage('en')">EN</button>
+                </div>
+            </div>
 
             <div id="about-container" class="about-box">
                 <p id="dynamic-about-text">Загрузка информации о канале...</p>
