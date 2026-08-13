@@ -68,7 +68,7 @@
             for (const chunk of chunks) {
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 секунд таймаут на чанк
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
                     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(chunk)}`;
                     const res = await fetch(url, { signal: controller.signal });
@@ -143,7 +143,6 @@
         function initAboutText() {
             const aboutTextP = document.getElementById("dynamic-about-text");
             
-            // Таймаут для защиты от вечной загрузки "О нас"
             const loadTimeout = setTimeout(() => {
                 if (aboutTextP.textContent.includes("Загрузка")) {
                     safelySetTextContent(aboutTextP, "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.");
@@ -187,7 +186,6 @@
             }
         }
 
-        // Функция переключения языка
         window.switchLanguage = async function(lang) {
             if (currentLang === lang) return;
             currentLang = lang;
@@ -195,7 +193,7 @@
             const langBtns = document.querySelectorAll('.lang-btn');
             langBtns.forEach(btn => {
                 btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
-                btn.disabled = true; // Блокируем кнопки во время перевода
+                btn.disabled = true;
             });
 
             await applyLanguage(lang);
@@ -207,7 +205,6 @@
             const translatableElements = document.querySelectorAll('.card h3, .word-text, #dynamic-about-text');
             
             if (lang === 'en') {
-                // Показываем плашку/текст загрузки перевода
                 translatableElements.forEach(el => {
                     el.classList.add('translating-pulse');
                     el.setAttribute('data-pre-trans', el.textContent);
@@ -331,7 +328,6 @@
                 document.getElementById('section-page-title').innerText = titleText;
                 dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Загрузка публикаций раздела...</p></div>`;
 
-                // УСТРАНЕНИЕ БАГА ВЕЧНОЙ ЗАГРУЗКИ: Защитный таймаут на 8 секунд
                 sectionFetchTimeout = setTimeout(() => {
                     if (dynamicContainer.innerHTML.includes("Загрузка публикаций")) {
                         dynamicContainer.innerHTML = `
@@ -519,7 +515,9 @@
             justify-content: space-between;
             margin-bottom: 30px;
             gap: 20px;
+            flex-wrap: wrap;
         }
+
         .section-title { 
             font-family: 'Montserrat', sans-serif; 
             font-size: 2.2rem; 
@@ -528,6 +526,10 @@
             padding-left: 15px; 
             letter-spacing: 1px; 
             margin-bottom: 0;
+            line-height: 1.2;
+            align-self: flex-start; /* Фиксирует красную полосу строго по высоте текста */
+            height: fit-content;
+            word-break: break-word;
         }
 
         .lang-switch-box {
@@ -560,7 +562,6 @@
             cursor: wait;
         }
 
-        /* АНИМАЦИЯ И СТИЛИ ИНДИКАТОРА ЗАГРУЗКИ ПЕРЕВОДА */
         .translating-pulse {
             opacity: 0.6;
             animation: pulseText 1.2s infinite ease-in-out;
@@ -577,7 +578,7 @@
 
         .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; max-height: 480px; display: flex; flex-direction: column; position: relative; transition: border-color 0.3s; }
         .card:hover { border-color: #dd0000; }
-        .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; }
+        .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; word-break: break-word; }
         
         .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
         .scroll-content::-webkit-scrollbar { width: 6px; }
@@ -700,6 +701,81 @@
         }
         
         .copyright-text { text-align: center; color: #444; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin-top: 20px; display: block; }
+
+        /* MEDIA QUERIES */
+        @media (max-width: 768px) {
+            .section-header-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+
+            .section-title {
+                font-size: 1.6rem;
+                width: 100%;
+            }
+
+            .lang-switch-box {
+                align-self: flex-start;
+            }
+
+            .container {
+                padding: 30px 15px;
+            }
+
+            .grid-display {
+                grid-template-columns: 1fr;
+            }
+
+            .logo h1 {
+                font-size: 3rem;
+            }
+
+            nav {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 480px) {
+            header {
+                padding: 25px 15px 15px 15px;
+            }
+
+            .logo h1 {
+                font-size: 2.5rem;
+            }
+
+            .section-title {
+                font-size: 1.35rem;
+            }
+
+            nav a {
+                font-size: 0.8rem;
+                padding: 12px 0;
+            }
+
+            .about-box {
+                padding: 20px;
+            }
+
+            .about-box p {
+                font-size: 1.05rem;
+            }
+
+            .card {
+                padding: 18px;
+            }
+
+            .custom-audio-player {
+                padding: 8px 10px;
+                gap: 8px;
+            }
+
+            .custom-audio-player .time-display {
+                font-size: 0.7rem;
+                min-width: 70px;
+            }
+        }
     </style>
     <script type="application/ld+json">
 {
