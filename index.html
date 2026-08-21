@@ -35,7 +35,10 @@
         const translationCache = new Map();
         let currentSectionId = 'about';
 
-        // ======= НАДЕЖНАЯ XSS ЗАЩИТА =======
+        let currentSortOrder = 'desc'; 
+        let currentYearFilter = 'all'; 
+        let currentDocsCache = []; 
+
         function escapeHTML(str) {
             if (!str) return '';
             return String(str)
@@ -56,7 +59,6 @@
             }
         }
 
-        // ======= БЕСПЛАТНЫЙ И НЕОГРАНИЧЕННЫЙ ПЕРЕВОДЧИК =======
         async function fetchTranslation(text, targetLang = 'en') {
             if (!text || !text.trim()) return text;
             const cacheKey = `${targetLang}:${text}`;
@@ -93,7 +95,6 @@
             return result;
         }
 
-        // Парсинг текста постов
         window.parseContent = function(text, mediaUrls, fallbackUrl) {
             let urls = [];
             if (mediaUrls && Array.isArray(mediaUrls)) {
@@ -131,7 +132,7 @@
                 }
             });
 
-            return topImagesHtml + `<div class="word-text" data-original="${escapeHTML(text || "")}">${safeText}</div>`;
+            return topImagesHtml + `<div class="word-text i18n-translatability" data-original="${escapeHTML(text || "")}">${safeText}</div>`;
         };
 
         function safelySetTextContent(element, text) {
@@ -155,7 +156,7 @@
                     ? docSnap.data().text 
                     : "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.";
                 safelySetTextContent(aboutTextP, text);
-                if (currentLang === 'en') applyLanguage('en');
+                if (currentLang !== 'ru') applyLanguage(currentLang);
             }, (err) => {
                 clearTimeout(loadTimeout);
                 safelySetTextContent(aboutTextP, "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.");
@@ -186,8 +187,27 @@
             }
         }
 
+        window.toggleLangModal = function() {
+            const modal = document.getElementById('lang-modal');
+            const isVisible = (modal.style.display === 'flex');
+            modal.style.display = isVisible ? 'none' : 'flex';
+        };
+
+        document.addEventListener('click', (e) => {
+            const modal = document.getElementById('lang-modal');
+            const box = document.querySelector('.lang-switch-box');
+            if (modal && modal.style.display === 'flex' && box && !box.contains(e.target)) {
+                modal.style.display = 'none';
+            }
+            
+            document.querySelectorAll('.v-more-menu.open').forEach(menu => {
+                if (!menu.contains(e.target) && !menu.previousElementSibling.contains(e.target)) {
+                    menu.classList.remove('open');
+                }
+            });
+        });
+
         window.switchLanguage = async function(lang) {
-            if (currentLang === lang) return;
             currentLang = lang;
 
             const langBtns = document.querySelectorAll('.lang-btn');
@@ -196,38 +216,67 @@
                 btn.disabled = true;
             });
 
+            document.getElementById('lang-modal').style.display = 'none';
             await applyLanguage(lang);
 
             langBtns.forEach(btn => btn.disabled = false);
         };
 
         async function applyLanguage(lang) {
-            const translatableElements = document.querySelectorAll('.card h3, .word-text, #dynamic-about-text');
+            const translatableElements = Array.from(document.querySelectorAll('.i18n-translatability, .card h3, .word-text, #dynamic-about-text'));
             
-            if (lang === 'en') {
+            const progressContainer = document.getElementById('progress-bar-container');
+            const progressLabel = document.getElementById('progress-bar-label');
+            const progressPercentText = document.getElementById('progress-bar-percent');
+            const progressBarFill = document.getElementById('progress-bar-fill');
+
+            if (lang === 'ru') {
+                progressContainer.style.display = 'none';
                 translatableElements.forEach(el => {
-                    el.classList.add('translating-pulse');
-                    el.setAttribute('data-pre-trans', el.textContent);
-                    el.textContent = "Translating...";
+                    const originalText = el.getAttribute('data-original') || el.textContent.trim();
+                    el.classList.remove('translating-pulse');
+                    el.textContent = originalText;
                 });
+                return;
             }
 
+            progressLabel.textContent = 'Выполняется перевод страницы...';
+            progressContainer.style.display = 'block';
+            progressPercentText.textContent = '0%';
+            progressBarFill.style.width = '0%';
+
+            translatableElements.forEach(el => {
+                if (!el.getAttribute('data-original')) {
+                    el.setAttribute('data-original', el.textContent.trim());
+                }
+                el.classList.add('translating-pulse');
+            });
+
+            const totalCount = translatableElements.length;
+            let completedCount = 0;
+
             for (const el of translatableElements) {
-                const originalText = el.getAttribute('data-original') || el.getAttribute('data-pre-trans') || el.textContent;
+                const originalText = el.getAttribute('data-original') || el.textContent.trim();
                 
-                if (!el.getAttribute('data-original') && originalText !== "Translating...") {
+                if (!el.getAttribute('data-original')) {
                     el.setAttribute('data-original', originalText);
                 }
 
-                if (lang === 'ru') {
-                    el.classList.remove('translating-pulse');
-                    el.textContent = originalText;
-                } else if (lang === 'en') {
-                    const translated = await fetchTranslation(originalText, 'en');
-                    el.classList.remove('translating-pulse');
-                    el.textContent = translated;
-                }
+                const translated = await fetchTranslation(originalText, lang);
+                el.classList.remove('translating-pulse');
+                el.textContent = translated;
+
+                completedCount++;
+                const percent = Math.round((completedCount / totalCount) * 100);
+                progressPercentText.textContent = `${percent}%`;
+                progressBarFill.style.width = `${percent}%`;
             }
+
+            setTimeout(() => {
+                if (currentLang !== 'ru') {
+                    progressContainer.style.display = 'none';
+                }
+            }, 1500);
         }
 
         window.initCustomAudioPlayer = function(container) {
@@ -252,7 +301,7 @@
 
             playBtn.addEventListener('click', () => {
                 if (audio.paused) {
-                    document.querySelectorAll('audio').forEach(a => {
+                    document.querySelectorAll('audio, video').forEach(a => {
                         if (a !== audio) a.pause();
                     });
                     audio.play();
@@ -286,9 +335,524 @@
             });
         };
 
+        // ======= ВИДЕОПЛЕЕР С ПАУЗОЙ ПО КЛИКУ И АНИМАЦИЕЙ =======
+        window.initCustomVideoPlayer = function(container) {
+            const player = container.querySelector('.custom-video-player');
+            if (!player) return;
+
+            const video = player.querySelector('video');
+            const overlay = player.querySelector('.v-overlay');
+            const playCenterBtn = player.querySelector('.v-play-center');
+            const playBtn = player.querySelector('.v-play-btn');
+            const playIcon = playBtn ? playBtn.querySelector('.material-icons') : null;
+            const centerIcon = playCenterBtn ? playCenterBtn.querySelector('.material-icons') : null;
+            const progressBar = player.querySelector('.v-progress-bar');
+            const progressFill = player.querySelector('.v-progress-fill');
+            const timeDisplay = player.querySelector('.v-time-display');
+            
+            const moreBtn = player.querySelector('.v-more-btn');
+            const moreMenu = player.querySelector('.v-more-menu');
+            const menuDownloadBtn = player.querySelector('.v-menu-download');
+            const menuMuteBtn = player.querySelector('.v-menu-mute');
+            const fsBtn = player.querySelector('.v-fs-btn');
+
+            function formatTime(seconds) {
+                if (isNaN(seconds) || !isFinite(seconds)) return "00:00";
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            }
+
+            function togglePlay() {
+                if (video.paused) {
+                    document.querySelectorAll('video, audio').forEach(v => {
+                        if (v !== video) v.pause();
+                    });
+                    video.play().catch(e => console.log("Autoplay blocked:", e));
+                } else {
+                    video.pause();
+                }
+            }
+
+            if (playCenterBtn) playCenterBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+            if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+            if (overlay) overlay.addEventListener('click', togglePlay);
+            
+            if (video) video.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+
+            video.addEventListener('play', () => {
+                if (playIcon) playIcon.textContent = 'pause';
+                if (centerIcon) centerIcon.textContent = 'pause';
+                player.classList.add('is-playing');
+            });
+
+            video.addEventListener('pause', () => {
+                if (playIcon) playIcon.textContent = 'play_arrow';
+                if (centerIcon) centerIcon.textContent = 'play_arrow';
+                player.classList.remove('is-playing');
+            });
+
+            video.addEventListener('timeupdate', () => {
+                if (video.duration) {
+                    const percent = (video.currentTime / video.duration) * 100;
+                    if (progressFill) progressFill.style.width = `${percent || 0}%`;
+                    if (timeDisplay) timeDisplay.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+                }
+            });
+
+            video.addEventListener('loadedmetadata', () => {
+                if (timeDisplay) timeDisplay.textContent = `00:00 / ${formatTime(video.duration)}`;
+            });
+
+            if (progressBar) {
+                progressBar.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const rect = progressBar.getBoundingClientRect();
+                    const pos = (e.clientX - rect.left) / rect.width;
+                    if (video.duration) video.currentTime = pos * video.duration;
+                });
+            }
+
+            function toggleMute() {
+                video.muted = !video.muted;
+                if (menuMuteBtn) {
+                    menuMuteBtn.innerHTML = `<i class="material-icons">${video.muted ? 'volume_up' : 'volume_off'}</i> ${video.muted ? 'Включить звук' : 'Убрать звук'}`;
+                }
+            }
+
+            if (menuMuteBtn) {
+                menuMuteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    toggleMute();
+                });
+            }
+
+            if (moreBtn && moreMenu) {
+                moreBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    document.querySelectorAll('.v-more-menu.open').forEach(m => {
+                        if (m !== moreMenu) m.classList.remove('open');
+                    });
+                    moreMenu.classList.toggle('open');
+                });
+            }
+
+            async function toggleFullscreen() {
+                try {
+                    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                        if (player.requestFullscreen) {
+                            await player.requestFullscreen();
+                        } else if (player.webkitRequestFullscreen) {
+                            await player.webkitRequestFullscreen();
+                        } else if (video.webkitEnterFullscreen) {
+                            video.webkitEnterFullscreen();
+                            return;
+                        }
+
+                        if (screen.orientation && screen.orientation.lock) {
+                            screen.orientation.lock('landscape').catch(() => {});
+                        }
+                    } else {
+                        if (document.exitFullscreen) {
+                            await document.exitFullscreen();
+                        } else if (document.webkitExitFullscreen) {
+                            await document.webkitExitFullscreen();
+                        }
+
+                        if (screen.orientation && screen.orientation.unlock) {
+                            screen.orientation.unlock();
+                        }
+                    }
+                } catch (err) {
+                    console.log("Fullscreen error:", err);
+                }
+            }
+
+            if (fsBtn) {
+                fsBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    toggleFullscreen();
+                });
+            }
+
+            if (menuDownloadBtn) {
+                menuDownloadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    window.openDownloadModal(video.currentSrc || video.src);
+                });
+            }
+        };
+
+        let activeDownloadUrl = "";
+
+        window.openDownloadModal = function(url) {
+            activeDownloadUrl = url;
+            const modal = document.getElementById('download-modal');
+            if (modal) modal.style.display = 'flex';
+        };
+
+        window.closeDownloadModal = function() {
+            const modal = document.getElementById('download-modal');
+            if (modal) modal.style.display = 'none';
+            activeDownloadUrl = "";
+        };
+
+        function showProgressUI(title) {
+            const container = document.getElementById('progress-bar-container');
+            const label = document.getElementById('progress-bar-label');
+            const percentText = document.getElementById('progress-bar-percent');
+            const fill = document.getElementById('progress-bar-fill');
+
+            label.textContent = title;
+            percentText.textContent = '0%';
+            fill.style.width = '0%';
+            container.style.display = 'block';
+
+            return function updateProgress(percent) {
+                const p = Math.min(100, Math.max(0, Math.round(percent)));
+                percentText.textContent = `${p}%`;
+                fill.style.width = `${p}%`;
+            };
+        }
+
+        function hideProgressUI() {
+            setTimeout(() => {
+                const container = document.getElementById('progress-bar-container');
+                container.style.display = 'none';
+            }, 1200);
+        }
+
+        window.downloadVideoClean = async function() {
+            if (!activeDownloadUrl) return;
+            const src = activeDownloadUrl;
+            closeDownloadModal();
+
+            const updateProgress = showProgressUI("Подготовка и скачивание видео...");
+
+            try {
+                const response = await fetch(src);
+                if (!response.ok) throw new Error("Сетевая ошибка скачивания");
+
+                const contentLength = response.headers.get('content-length');
+                const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+                const reader = response.body.getReader();
+                let receivedBytes = 0;
+                const chunks = [];
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    chunks.push(value);
+                    receivedBytes += value.length;
+
+                    if (totalBytes > 0) {
+                        updateProgress((receivedBytes / totalBytes) * 100);
+                    } else {
+                        updateProgress(50);
+                    }
+                }
+
+                updateProgress(100);
+
+                const blob = new Blob(chunks, { type: 'video/mp4' });
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = 'SSBA_video.mp4';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+
+            } catch (err) {
+                console.error("Ошибка скачивания файла:", err);
+                alert("Ошибка скачивания. Загружаем файл напрямую...");
+                const a = document.createElement('a');
+                a.href = src;
+                a.download = 'SSBA_video.mp4';
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } finally {
+                hideProgressUI();
+            }
+        };
+
+        window.downloadVideoWatermark = async function() {
+            if (!activeDownloadUrl) return;
+            const src = activeDownloadUrl;
+            closeDownloadModal();
+
+            const updateProgress = showProgressUI("Обработка водяного знака...");
+
+            try {
+                const tempVideo = document.createElement('video');
+                tempVideo.crossOrigin = "anonymous";
+                tempVideo.src = src;
+                tempVideo.muted = true;
+                tempVideo.preload = "auto";
+
+                await new Promise((resolve, reject) => {
+                    tempVideo.onloadeddata = resolve;
+                    tempVideo.onerror = () => reject(new Error("Ошибка загрузки видеофайла"));
+                });
+
+                const duration = tempVideo.duration || 1;
+                const canvas = document.createElement('canvas');
+                canvas.width = tempVideo.videoWidth || 1280;
+                canvas.height = tempVideo.videoHeight || 720;
+                const ctx = canvas.getContext('2d');
+
+                const stream = canvas.captureStream(30);
+                let mimeType = 'video/webm;codecs=vp9';
+                if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+
+                const mediaRecorder = new MediaRecorder(stream, { mimeType });
+                const chunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) chunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    updateProgress(100);
+                    const blob = new Blob(chunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'SSBA_video_watermark.webm';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    hideProgressUI();
+                };
+
+                tempVideo.currentTime = 0;
+                await tempVideo.play();
+                mediaRecorder.start();
+
+                function drawFrame() {
+                    if (tempVideo.paused || tempVideo.ended) {
+                        mediaRecorder.stop();
+                        return;
+                    }
+
+                    ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
+
+                    ctx.save();
+                    ctx.globalAlpha = 0.55;
+                    ctx.fillStyle = "#ffffff";
+                    const fontSize = Math.max(16, Math.round(canvas.height * 0.045));
+                    ctx.font = `bold ${fontSize}px Montserrat, sans-serif`;
+                    ctx.shadowColor = "rgba(0,0,0,0.8)";
+                    ctx.shadowBlur = 6;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText("su-ssma.netlify.app", canvas.width - (fontSize * 11), canvas.height - (fontSize * 1.2));
+                    ctx.restore();
+
+                    const currentPercent = (tempVideo.currentTime / duration) * 100;
+                    updateProgress(currentPercent);
+
+                    requestAnimationFrame(drawFrame);
+                }
+
+                drawFrame();
+
+            } catch (err) {
+                console.warn("Фолбэк на прямое скачивание:", err);
+                const a = document.createElement('a');
+                a.href = src;
+                a.download = 'video.mp4';
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                hideProgressUI();
+            }
+        };
+
         let currentUnsubscribe = null;
-        let renderedDocIds = new Set();
         let sectionFetchTimeout = null;
+
+        function extractYearsFromItem(item) {
+            const combinedText = `${item.title || ''} ${item.text || ''}`;
+            const yearMatches = combinedText.match(/\b(18|19|20)\d{2}\b/g);
+            if (!yearMatches) return [];
+            return Array.from(new Set(yearMatches));
+        }
+
+        function updateYearSelectOptions(docs) {
+            const yearSelect = document.getElementById('filter-year-select');
+            if (!yearSelect) return;
+
+            const detectedYears = new Set();
+            docs.forEach(item => {
+                const years = extractYearsFromItem(item);
+                years.forEach(y => detectedYears.add(y));
+            });
+
+            const sortedYears = Array.from(detectedYears).sort((a, b) => b - a);
+
+            let optionsHtml = `<option value="all">Все года</option>`;
+            sortedYears.forEach(year => {
+                optionsHtml += `<option value="${year}">${year} год</option>`;
+            });
+
+            yearSelect.innerHTML = optionsHtml;
+            yearSelect.value = currentYearFilter;
+            
+            if (currentYearFilter !== 'all' && !detectedYears.has(currentYearFilter)) {
+                currentYearFilter = 'all';
+                yearSelect.value = 'all';
+            }
+        }
+
+        function renderFilteredCards() {
+            const dynamicContainer = document.getElementById('dynamic-content-container');
+            const sectionId = currentSectionId;
+
+            if (!currentDocsCache || currentDocsCache.length === 0) {
+                dynamicContainer.innerHTML = `<div class="card card-animate" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
+                return;
+            }
+
+            let filteredDocs = currentDocsCache.filter(item => {
+                if (currentYearFilter === 'all') return true;
+                const years = extractYearsFromItem(item);
+                return years.includes(currentYearFilter);
+            });
+
+            filteredDocs.sort((a, b) => {
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+                return currentSortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+            });
+
+            if (filteredDocs.length === 0) {
+                dynamicContainer.innerHTML = `<div class="card card-animate" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Публикации за ${currentYearFilter} год не найдены.</p></div>`;
+                return;
+            }
+
+            let finalHtml = "";
+            filteredDocs.forEach((data) => {
+                const id = data.id;
+                registerView(sectionId, id);
+
+                const title = data.title || "[Без заголовка]";
+                const safeTitle = escapeHTML(title);
+                const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
+                const safeMediaUrl = isValidURL(mediaUrl) ? escapeHTML(mediaUrl) : "";
+
+                let parsedContent = "";
+                if (sectionId === "posts" || sectionId === "photo" || sectionId === "books") {
+                    parsedContent = parseContent(data.text, data.mediaUrls, data.mediaUrl);
+                } else {
+                    parsedContent = parseContent(data.text, null, null);
+                }
+
+                if (sectionId === "posts" || sectionId === "photo") {
+                    finalHtml += `
+                        <div class="card card-animate" data-id="${id}">
+                            <h3 data-original="${safeTitle}">${safeTitle}</h3>
+                            <div class="scroll-content">
+                                ${parsedContent}
+                            </div>
+                        </div>`;
+                } else if (sectionId === "video") {
+                    /* ИСПРАВЛЕНИЕ: Убран класс card-animate, добавлена статичная верстка карточки видео без дерганий */
+                    finalHtml += `
+                        <div class="card media-card media-card-stable" data-id="${id}">
+                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
+                            <div class="scroll-content" style="width: 100%;">
+                                ${safeMediaUrl ? `
+                                    <div class="custom-video-player">
+                                        <div class="v-wrapper">
+                                            <video src="${safeMediaUrl}" preload="metadata" playsinline webkit-playsinline></video>
+                                            <div class="v-overlay">
+                                                <button class="v-play-center" type="button"><i class="material-icons">play_arrow</i></button>
+                                            </div>
+                                        </div>
+                                        <div class="v-controls">
+                                            <button class="v-btn v-play-btn" type="button"><i class="material-icons">play_arrow</i></button>
+                                            <div class="v-progress-bar"><div class="v-progress-fill"></div></div>
+                                            <span class="v-time-display">00:00 / 00:00</span>
+                                            <div style="position: relative;">
+                                                <button class="v-btn v-more-btn" type="button" title="Ещё"><i class="material-icons">more_vert</i></button>
+                                                <div class="v-more-menu">
+                                                    <button class="v-menu-item v-menu-mute" type="button"><i class="material-icons">volume_off</i> Убрать звук</button>
+                                                    <button class="v-menu-item v-menu-download" type="button"><i class="material-icons">file_download</i> Скачать</button>
+                                                </div>
+                                            </div>
+                                            <button class="v-btn v-fs-btn" type="button" title="На весь экран"><i class="material-icons">fullscreen</i></button>
+                                        </div>
+                                    </div>
+                                ` : ''}
+                                ${parsedContent}
+                            </div>
+                        </div>`;
+                } else if (sectionId === "music") {
+                    finalHtml += `
+                        <div class="card media-card card-animate" data-id="${id}">
+                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
+                            <div class="scroll-content" style="width: 100%;">
+                                ${safeMediaUrl ? `
+                                    <div class="custom-audio-player">
+                                        <audio src="${safeMediaUrl}" preload="metadata"></audio>
+                                        <button class="play-btn" type="button"><i class="material-icons">play_arrow</i></button>
+                                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                                        <span class="time-display">00:00 / 00:00</span>
+                                        <button class="volume-btn" type="button"><i class="material-icons">volume_up</i></button>
+                                    </div>
+                                ` : ''}
+                                ${parsedContent}
+                            </div>
+                        </div>`;
+                } else if (sectionId === "books") {
+                    finalHtml += `
+                        <div class="card card-animate" data-id="${id}">
+                            <h3 data-original="${safeTitle}">${safeTitle}</h3>
+                            <div class="scroll-content">
+                                ${parsedContent}
+                                ${safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn i18n-translatability" style="margin-top:15px;" rel="noopener noreferrer">Скачать / Читать</a>` : ''}
+                            </div>
+                        </div>`;
+                }
+            });
+
+            dynamicContainer.innerHTML = finalHtml;
+
+            if (sectionId === "music") {
+                dynamicContainer.querySelectorAll('.card').forEach(card => {
+                    window.initCustomAudioPlayer(card);
+                });
+            } else if (sectionId === "video") {
+                dynamicContainer.querySelectorAll('.card').forEach(card => {
+                    window.initCustomVideoPlayer(card);
+                });
+            }
+
+            if (currentLang !== 'ru') {
+                applyLanguage(currentLang);
+            }
+        }
+
+        window.handleSortChange = function(sortValue) {
+            currentSortOrder = sortValue;
+            renderFilteredCards();
+        };
+
+        window.handleYearFilterChange = function(yearValue) {
+            currentYearFilter = yearValue;
+            renderFilteredCards();
+        };
 
         window.showSection = function(sectionId) {
             currentSectionId = sectionId;
@@ -299,6 +863,8 @@
 
             document.getElementById('about-container').style.display = 'none';
             const dynamicContainer = document.getElementById('dynamic-content-container');
+            const filterContainer = document.getElementById('filter-controls-bar');
+
             dynamicContainer.style.display = 'none';
 
             if (currentUnsubscribe) { 
@@ -310,14 +876,17 @@
                 sectionFetchTimeout = null;
             }
 
-            renderedDocIds.clear();
+            currentDocsCache = [];
 
             if (sectionId === 'about') {
                 document.getElementById('section-page-title').innerText = "О канале";
                 document.getElementById('about-container').style.display = 'block';
-                if (currentLang === 'en') applyLanguage('en');
+                filterContainer.style.display = 'none';
+                if (currentLang !== 'ru') applyLanguage(currentLang);
             } else {
+                filterContainer.style.display = 'flex';
                 dynamicContainer.style.display = 'grid';
+                
                 let titleText = "";
                 if (sectionId === "posts") titleText = "Последние Посты";
                 if (sectionId === "photo") titleText = "Фотогалерея";
@@ -325,13 +894,16 @@
                 if (sectionId === "music") titleText = "Музыкальный архив";
                 if (sectionId === "books") titleText = "Библиотека";
 
-                document.getElementById('section-page-title').innerText = titleText;
-                dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Загрузка публикаций раздела...</p></div>`;
+                const titleEl = document.getElementById('section-page-title');
+                titleEl.innerText = titleText;
+                titleEl.setAttribute('data-original', titleText);
+
+                dynamicContainer.innerHTML = `<div class="card card-animate" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Загрузка публикаций раздела...</p></div>`;
 
                 sectionFetchTimeout = setTimeout(() => {
                     if (dynamicContainer.innerHTML.includes("Загрузка публикаций")) {
                         dynamicContainer.innerHTML = `
-                            <div class="card" style="grid-column: 1 / -1; text-align:center;">
+                            <div class="card card-animate" style="grid-column: 1 / -1; text-align:center;">
                                 <p style="color:#ff3333; margin-bottom:15px;">Не удалось загрузить данные (превышено время ожидания).</p>
                                 <button class="btn" onclick="showSection('${sectionId}')">Повторить попытку</button>
                             </div>`;
@@ -348,109 +920,32 @@
                         }
 
                         if (snapshot.empty) {
-                            dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
-                            renderedDocIds.clear();
+                            dynamicContainer.innerHTML = `<div class="card card-animate" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
+                            currentDocsCache = [];
+                            updateYearSelectOptions([]);
                             return;
                         }
                         
-                        const currentIds = snapshot.docs.map(doc => doc.id);
-                        const isStructureChanged = currentIds.length !== renderedDocIds.size || 
-                            !currentIds.every(id => renderedDocIds.has(id));
+                        currentDocsCache = snapshot.docs.map(docSnapshot => ({
+                            id: docSnapshot.id,
+                            ...docSnapshot.data()
+                        }));
 
-                        if (isStructureChanged) {
-                            let finalHtml = "";
-                            renderedDocIds.clear();
+                        updateYearSelectOptions(currentDocsCache);
+                        renderFilteredCards();
 
-                            snapshot.forEach((docSnapshot) => {
-                                const data = docSnapshot.data();
-                                const id = docSnapshot.id;
-                                renderedDocIds.add(id);
-                                
-                                registerView(sectionId, id);
-
-                                const title = data.title || "[Без заголовка]";
-                                const safeTitle = escapeHTML(title);
-                                const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
-                                const safeMediaUrl = isValidURL(mediaUrl) ? escapeHTML(mediaUrl) : "";
-
-                                let parsedContent = "";
-                                if (sectionId === "posts" || sectionId === "photo" || sectionId === "books") {
-                                    parsedContent = parseContent(data.text, data.mediaUrls, data.mediaUrl);
-                                } else {
-                                    parsedContent = parseContent(data.text, null, null);
-                                }
-
-                                if (sectionId === "posts" || sectionId === "photo") {
-                                    finalHtml += `
-                                        <div class="card" data-id="${id}">
-                                            <h3 data-original="${safeTitle}">${safeTitle}</h3>
-                                            <div class="scroll-content">
-                                                ${parsedContent}
-                                            </div>
-                                        </div>`;
-                                } else if (sectionId === "video") {
-                                    finalHtml += `
-                                        <div class="card media-card" data-id="${id}">
-                                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
-                                            <div class="scroll-content" style="width: 100%;">
-                                                ${safeMediaUrl ? `<video src="${safeMediaUrl}" controls preload="metadata" class="loaded-media"></video>` : ''}
-                                                ${parsedContent}
-                                            </div>
-                                        </div>`;
-                                } else if (sectionId === "music") {
-                                    finalHtml += `
-                                        <div class="card media-card" data-id="${id}">
-                                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
-                                            <div class="scroll-content" style="width: 100%;">
-                                                ${safeMediaUrl ? `
-                                                    <div class="custom-audio-player">
-                                                        <audio src="${safeMediaUrl}" preload="metadata"></audio>
-                                                        <button class="play-btn" type="button"><i class="material-icons">play_arrow</i></button>
-                                                        <div class="progress-bar"><div class="progress-fill"></div></div>
-                                                        <span class="time-display">00:00 / 00:00</span>
-                                                        <button class="volume-btn" type="button"><i class="material-icons">volume_up</i></button>
-                                                    </div>
-                                                ` : ''}
-                                                ${parsedContent}
-                                            </div>
-                                        </div>`;
-                                } else if (sectionId === "books") {
-                                    finalHtml += `
-                                        <div class="card" data-id="${id}">
-                                            <h3 data-original="${safeTitle}">${safeTitle}</h3>
-                                            <div class="scroll-content">
-                                                ${parsedContent}
-                                                ${safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn" style="margin-top:15px;" rel="noopener noreferrer">Скачать / Читать</a>` : ''}
-                                            </div>
-                                        </div>`;
-                                }
-                            });
-                            
-                            dynamicContainer.innerHTML = finalHtml;
-
-                            if (sectionId === "music") {
-                                dynamicContainer.querySelectorAll('.card').forEach(card => {
-                                    window.initCustomAudioPlayer(card);
-                                });
-                            }
-
-                            if (currentLang === 'en') {
-                                applyLanguage('en');
-                            }
-                        }
-                        
                     }, (error) => {
                         console.error("Ошибка Firestore:", error);
                         if (sectionFetchTimeout) clearTimeout(sectionFetchTimeout);
                         dynamicContainer.innerHTML = `
-                            <div class="card" style="grid-column: 1 / -1; text-align:center;">
+                            <div class="card card-animate" style="grid-column: 1 / -1; text-align:center;">
                                 <p style="color:#ff3333; margin-bottom:15px;">Ошибка загрузки данных из сети.</p>
                                 <button class="btn" onclick="showSection('${sectionId}')">Обновить</button>
                             </div>`;
                     });
                 } catch (err) {
                     console.error("Критическая ошибка инициализации ленты:", err);
-                    dynamicContainer.innerHTML = `<div class="card" style="grid-column: 1 / -1;"><p style="text-align:center; color:#ff0000;">Произошла ошибка системы.</p></div>`;
+                    dynamicContainer.innerHTML = `<div class="card card-animate" style="grid-column: 1 / -1;"><p style="text-align:center; color:#ff0000;">Произошла ошибка системы.</p></div>`;
                 }
             }
         };
@@ -476,7 +971,16 @@
     </script>
 
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* ПОЛНОЕ УДАЛЕНИЕ СИНЕГО ПОДСВЕТА -WEBKIT И НАСТРОЙКИ СТИЛЕЙ */
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+            -webkit-tap-highlight-color: transparent !important; 
+            -webkit-touch-callout: none;
+            outline: none;
+        }
+
         body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; overflow-x: hidden; }
 
         header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; position: relative; z-index: 10; }
@@ -493,9 +997,12 @@
         nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; width: 100%; max-width: 750px; margin: 0 auto 20px auto; }
         nav a {
             color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px;
-            padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.2s ease; cursor: pointer;
+            padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; 
+            transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); cursor: pointer;
         }
-        nav a:hover, nav a.active { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
+        nav a:hover, nav a.active { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; transform: translateY(-2px); }
+        nav a:active { transform: translateY(0); }
+
         .red-bar { width: 100%; height: 5px; background-color: #dd0000; position: relative; z-index: 10; }
 
         .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; }
@@ -509,13 +1016,50 @@
 
         .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; min-height: 500px; }
         
+        .translation-progress-box {
+            display: none;
+            background: rgba(26, 26, 28, 0.95);
+            border: 1px solid #dd0000;
+            padding: 12px 18px;
+            margin-bottom: 25px;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.5);
+        }
+
+        .translation-status-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #ffffff;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .translation-bar-track {
+            width: 100%;
+            height: 6px;
+            background: #2d2d30;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .translation-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: #dd0000;
+            transition: width 0.15s ease-out;
+        }
+
         .section-header-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             gap: 20px;
             flex-wrap: wrap;
+            position: relative;
         }
 
         .section-title { 
@@ -527,9 +1071,52 @@
             letter-spacing: 1px; 
             margin-bottom: 0;
             line-height: 1.2;
-            align-self: flex-start; /* Фиксирует красную полосу строго по высоте текста */
+            align-self: flex-start;
             height: fit-content;
             word-break: break-word;
+        }
+
+        .filter-controls-bar {
+            display: none;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 15px;
+            background: #1a1a1c;
+            border: 1px solid #2d2d30;
+            padding: 12px 18px;
+            margin-bottom: 30px;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-label {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #8a8a8f;
+            text-transform: uppercase;
+        }
+
+        .filter-select {
+            background: #121214;
+            color: #ffffff;
+            border: 1px solid #dd0000;
+            padding: 8px 12px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.85rem;
+            font-weight: bold;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .filter-select option {
+            background: #121214;
+            color: #ffffff;
         }
 
         .lang-switch-box {
@@ -538,18 +1125,19 @@
             border: 1px solid #2d2d30;
             padding: 2px;
             flex-shrink: 0;
+            position: relative;
         }
 
         .lang-btn {
             background: transparent;
             border: none;
             color: #8a8a8f;
-            padding: 8px 14px;
+            padding: 8px 12px;
             font-family: 'Montserrat', sans-serif;
             font-size: 0.85rem;
             font-weight: bold;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
         }
 
         .lang-btn.active {
@@ -560,6 +1148,61 @@
         .lang-btn:disabled {
             opacity: 0.5;
             cursor: wait;
+        }
+
+        .lang-more-btn {
+            background: #2d2d30;
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .lang-more-btn:hover { background: #3d3d42; }
+
+        .lang-modal {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: #121214;
+            border: 1px solid #dd0000;
+            padding: 12px;
+            z-index: 100;
+            width: min(320px, 88vw);
+            max-height: 70vh;
+            overflow-y: auto;
+            flex-wrap: wrap;
+            gap: 8px;
+            box-shadow: 0px 8px 20px rgba(0,0,0,0.9);
+            margin-top: 5px;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .lang-modal::-webkit-scrollbar { width: 4px; }
+        .lang-modal::-webkit-scrollbar-thumb { background: #dd0000; }
+
+        .lang-modal .lang-btn {
+            flex: 1 1 calc(50% - 8px);
+            min-width: 110px;
+            text-align: center;
+            background: #1a1a1c;
+            border: 1px solid #2d2d30;
+            padding: 10px 8px;
+        }
+
+        .lang-modal-title {
+            width: 100%;
+            font-size: 0.75rem;
+            color: #dd0000;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-family: 'Montserrat', sans-serif;
+            margin-top: 6px;
+            margin-bottom: 2px;
+            border-bottom: 1px solid #2d2d30;
+            padding-bottom: 4px;
         }
 
         .translating-pulse {
@@ -574,10 +1217,48 @@
             100% { opacity: 0.3; }
         }
 
-        .grid-display { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; }
+        .grid-display { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); 
+            gap: 25px; 
+            align-items: start;
+        }
 
-        .card { background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px; max-height: 480px; display: flex; flex-direction: column; position: relative; transition: border-color 0.3s; }
-        .card:hover { border-color: #dd0000; }
+        @keyframes fadeInCard {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card-animate {
+            animation: fadeInCard 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* ИСПРАВЛЕНИЕ: Стабильная карточка для видео без плавающей анимации и рывков */
+        .media-card-stable {
+            opacity: 1 !important;
+            transform: none !important;
+            animation: none !important;
+        }
+
+        .card { 
+            background: rgba(26, 26, 28, 0.92); 
+            border: 1px solid #2d2d30; 
+            padding: 25px; 
+            max-height: 520px; 
+            min-height: 280px; 
+            display: flex; 
+            flex-direction: column; 
+            position: relative; 
+            transition: border-color 0.3s, transform 0.25s ease; 
+            contain: content; 
+        }
+        .card:hover { border-color: #dd0000; transform: translateY(-3px); }
         .card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; word-break: break-word; }
         
         .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
@@ -591,15 +1272,19 @@
         .post-inline-link { color: #dd0000; font-weight: bold; text-decoration: none; border-bottom: 1px dashed #dd0000; transition: color 0.2s; }
         .post-inline-link:hover { color: #ff3333; border-bottom-style: solid; }
 
-        .about-box { background: rgba(21, 21, 23, 0.95); border: 1px solid #2d2d30; padding: 35px; border-left: 4px solid #dd0000; }
+        .about-box { 
+            background: rgba(21, 21, 23, 0.95); 
+            border: 1px solid #2d2d30; 
+            padding: 35px; 
+            border-left: 4px solid #dd0000; 
+            animation: fadeInCard 0.4s ease-out;
+        }
         .about-box p { font-family: 'Times New Roman', Times, serif; font-size: 1.25rem; color: #bbb; margin-bottom: 15px; line-height: 1.7; text-align: left; white-space: pre-wrap; }
 
         .media-card { display: flex; flex-direction: column; align-items: center; }
         .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
         .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 12px 0; display: block; }
-        .loaded-media { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin-bottom: 15px; display: block; }
 
-        /* КАСТОМНЫЙ АУДИОПЛЕЕР */
         .custom-audio-player {
             display: flex;
             align-items: center;
@@ -624,13 +1309,14 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: background-color 0.2s, transform 0.15s;
             flex-shrink: 0;
         }
 
         .custom-audio-player .play-btn:hover,
         .custom-audio-player .volume-btn:hover {
             background: #ff3333;
+            transform: scale(1.05);
         }
 
         .custom-audio-player .play-btn .material-icons,
@@ -662,8 +1348,290 @@
             flex-shrink: 0;
         }
 
-        .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; transition: background-color 0.2s; text-align: center; cursor: pointer; border: none; }
-        .btn:hover { background-color: #ff1a1a; }
+        .custom-video-player {
+            width: 100%;
+            background: #000000;
+            border: 1px solid #dd0000;
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transform: translateZ(0);
+            will-change: transform;
+        }
+
+        .custom-video-player:fullscreen,
+        .custom-video-player:-webkit-full-screen {
+            width: 100vw !important;
+            height: 100vh !important;
+            border: none;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .v-wrapper {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background-color: #000;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .custom-video-player:fullscreen .v-wrapper,
+        .custom-video-player:-webkit-full-screen .v-wrapper {
+            flex-grow: 1;
+            padding-top: 0;
+            height: calc(100vh - 50px);
+        }
+
+        .v-wrapper video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            cursor: pointer;
+        }
+
+        .v-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 4;
+            transition: opacity 0.25s ease;
+        }
+
+        .custom-video-player.is-playing .v-overlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .v-play-center {
+            background: #dd0000;
+            border: none;
+            color: #000000;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.15s;
+        }
+
+        .v-play-center:hover {
+            transform: scale(1.12);
+            background: #ff3333;
+        }
+
+        .v-play-center .material-icons {
+            font-size: 34px;
+        }
+
+        .v-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #121214;
+            padding: 8px 10px;
+            border-top: 1px solid #2d2d30;
+            z-index: 6;
+        }
+
+        .custom-video-player:fullscreen .v-controls,
+        .custom-video-player:-webkit-full-screen .v-controls {
+            background: rgba(18, 18, 20, 0.95);
+            padding: 12px 16px;
+            border-top: 1px solid #dd0000;
+        }
+
+        .v-btn {
+            background: #dd0000;
+            border: none;
+            color: #000000;
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.15s;
+            flex-shrink: 0;
+        }
+
+        .v-btn:hover {
+            background: #ff3333;
+            transform: scale(1.05);
+        }
+
+        .v-btn:active {
+            transform: scale(0.95);
+        }
+
+        .v-btn .material-icons {
+            font-size: 20px;
+        }
+
+        .v-progress-bar {
+            flex-grow: 1;
+            height: 6px;
+            background: #2d2d30;
+            cursor: pointer;
+            position: relative;
+            min-width: 40px;
+        }
+
+        .v-progress-fill {
+            height: 100%;
+            background: #dd0000;
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .v-time-display {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.75rem;
+            color: #a0a0a5;
+            min-width: 80px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .v-more-menu {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            right: 0;
+            background: #1a1a1c;
+            border: 1px solid #dd0000;
+            margin-bottom: 5px;
+            z-index: 20;
+            flex-direction: column;
+            min-width: 170px;
+            box-shadow: 0px 4px 12px rgba(0,0,0,0.9);
+            animation: fadeIn 0.15s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .v-more-menu.open {
+            display: flex;
+        }
+
+        .v-menu-item {
+            background: transparent;
+            border: none;
+            color: #ffffff;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: left;
+            transition: background-color 0.2s;
+        }
+
+        .v-menu-item:hover {
+            background: #dd0000;
+            color: #000000;
+        }
+
+        .v-menu-item .material-icons {
+            font-size: 18px;
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .modal-card {
+            background: #1a1a1c;
+            border: 1px solid #dd0000;
+            padding: 25px;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            animation: fadeInCard 0.25s ease-out;
+        }
+
+        .modal-card h4 {
+            font-family: 'Montserrat', sans-serif;
+            color: #dd0000;
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+        }
+
+        .modal-card p {
+            font-size: 0.9rem;
+            color: #a0a0a5;
+            margin-bottom: 20px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .modal-buttons .btn {
+            width: 100%;
+        }
+
+        .modal-buttons .btn-secondary {
+            background: #2d2d30;
+            color: #ffffff;
+        }
+
+        .modal-buttons .btn-secondary:hover {
+            background: #44444c;
+        }
+
+        .btn { 
+            display: inline-block; 
+            padding: 10px 20px; 
+            background-color: #dd0000; 
+            color: #000000; 
+            text-decoration: none; 
+            text-transform: uppercase; 
+            font-weight: bold; 
+            font-size: 0.9rem; 
+            transition: background-color 0.2s, transform 0.15s; 
+            text-align: center; 
+            cursor: pointer; 
+            border: none; 
+        }
+        .btn:hover { background-color: #ff1a1a; transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
 
         footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 25px; position: relative; z-index: 10; }
         
@@ -702,7 +1670,6 @@
         
         .copyright-text { text-align: center; color: #444; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin-top: 20px; display: block; }
 
-        /* MEDIA QUERIES */
         @media (max-width: 768px) {
             .section-header-row {
                 flex-direction: column;
@@ -715,8 +1682,27 @@
                 width: 100%;
             }
 
+            .filter-controls-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filter-group {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .filter-select {
+                width: 100%;
+            }
+
             .lang-switch-box {
                 align-self: flex-start;
+            }
+
+            .lang-modal {
+                right: auto;
+                left: 0;
             }
 
             .container {
@@ -766,14 +1752,23 @@
                 padding: 18px;
             }
 
-            .custom-audio-player {
-                padding: 8px 10px;
-                gap: 8px;
+            .custom-audio-player, .v-controls {
+                padding: 6px 8px;
+                gap: 5px;
             }
 
-            .custom-audio-player .time-display {
-                font-size: 0.7rem;
-                min-width: 70px;
+            .custom-audio-player .time-display, .v-time-display {
+                font-size: 0.65rem;
+                min-width: 65px;
+            }
+
+            .v-btn {
+                width: 30px;
+                height: 30px;
+            }
+            
+            .v-btn .material-icons {
+                font-size: 18px;
             }
         }
     </style>
@@ -794,19 +1789,19 @@
             <div class="logo">
                 <h1>ССБА</h1>
             </div>
-            <p class="description">
+            <p class="description i18n-translatability">
                 Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.
             </p>
-            <div class="quote-box" id="quote-container">«Загрузка цитаты...» — Автор</div>
+            <div class="quote-box i18n-translatability" id="quote-container">«Загрузка цитаты...» — Автор</div>
         </div>
 
         <nav>
-            <a onclick="showSection('about')">О канале</a>
-            <a onclick="showSection('posts')">Посты</a>
-            <a onclick="showSection('photo')">Фото</a>
-            <a onclick="showSection('video')">Видео</a>
-            <a onclick="showSection('music')">Музыка</a>
-            <a onclick="showSection('books')">Книги</a>
+            <a onclick="showSection('about')" class="i18n-translatability">О канале</a>
+            <a onclick="showSection('posts')" class="i18n-translatability">Посты</a>
+            <a onclick="showSection('photo')" class="i18n-translatability">Фото</a>
+            <a onclick="showSection('video')" class="i18n-translatability">Видео</a>
+            <a onclick="showSection('music')" class="i18n-translatability">Музыка</a>
+            <a onclick="showSection('books')" class="i18n-translatability">Книги</a>
         </nav>
     </header>
 
@@ -818,19 +1813,79 @@
         </div>
 
         <div class="container">
+            <div class="translation-progress-box" id="progress-bar-container">
+                <div class="translation-status-info">
+                    <span id="progress-bar-label">Выполняется перевод страницы...</span>
+                    <span id="progress-bar-percent">0%</span>
+                </div>
+                <div class="translation-bar-track">
+                    <div class="translation-bar-fill" id="progress-bar-fill"></div>
+                </div>
+            </div>
+
             <div class="section-header-row">
-                <h2 class="section-title" id="section-page-title">ЧТО ТАКОЕ ССБА: КТО МЫ, ЗА ЧТО БОРЕМСЯ, ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО К НАМ И КАК ЭТО СДЕЛАТЬ:</h2>
+                <h2 class="section-title i18n-translatability" id="section-page-title">ЧТО ТАКОЕ ССБА: КТО МЫ, ЗА ЧТО БОРЕМСЯ, ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО К НАМ И КАК ЭТО СДЕЛАТЬ:</h2>
                 <div class="lang-switch-box">
                     <button class="lang-btn active" data-lang="ru" onclick="switchLanguage('ru')">RU</button>
                     <button class="lang-btn" data-lang="en" onclick="switchLanguage('en')">EN</button>
+                    <button class="lang-more-btn" onclick="toggleLangModal()">+ Ещё</button>
+
+                    <div class="lang-modal" id="lang-modal">
+                        <span class="lang-modal-title">Популярные</span>
+                        <button class="lang-btn" data-lang="de" onclick="switchLanguage('de')">DE (Немецкий)</button>
+                        <button class="lang-btn" data-lang="fr" onclick="switchLanguage('fr')">FR (Французский)</button>
+                        <button class="lang-btn" data-lang="es" onclick="switchLanguage('es')">ES (Испанский)</button>
+                        
+                        <span class="lang-modal-title">Дополнительно</span>
+                        <button class="lang-btn" data-lang="it" onclick="switchLanguage('it')">IT (Итальянский)</button>
+
+                        <span class="lang-modal-title">Языки стран СНГ</span>
+                        <button class="lang-btn" data-lang="uk" onclick="switchLanguage('uk')">UK (Украинский)</button>
+                        <button class="lang-btn" data-lang="be" onclick="switchLanguage('be')">BE (Белорусский)</button>
+                        <button class="lang-btn" data-lang="kk" onclick="switchLanguage('kk')">KK (Казахский)</button>
+                        <button class="lang-btn" data-lang="uz" onclick="switchLanguage('uz')">UZ (Узбекский)</button>
+                        <button class="lang-btn" data-lang="hy" onclick="switchLanguage('hy')">HY (Армянский)</button>
+                        <button class="lang-btn" data-lang="ka" onclick="switchLanguage('ka')">KA (Грузинский)</button>
+                        <button class="lang-btn" data-lang="az" onclick="switchLanguage('az')">AZ (Азербайджанский)</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="filter-controls-bar" id="filter-controls-bar">
+                <div class="filter-group">
+                    <span class="filter-label i18n-translatability">Сортировка:</span>
+                    <select class="filter-select" id="sort-order-select" onchange="handleSortChange(this.value)">
+                        <option value="desc">Сначала новые</option>
+                        <option value="asc">Сначала старые</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <span class="filter-label i18n-translatability">Фильтр по году:</span>
+                    <select class="filter-select" id="filter-year-select" onchange="handleYearFilterChange(this.value)">
+                        <option value="all">Все года</option>
+                    </select>
                 </div>
             </div>
 
             <div id="about-container" class="about-box">
-                <p id="dynamic-about-text">Загрузка информации о канале...</p>
+                <p id="dynamic-about-text" class="i18n-translatability">Загрузка информации о канале...</p>
             </div>
 
             <div id="dynamic-content-container" class="grid-display" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО СКАЧИВАНИЯ -->
+    <div class="modal-overlay" id="download-modal">
+        <div class="modal-card">
+            <h4>Скачивание видео</h4>
+            <p>Выберите вариант сохранения файла:</p>
+            <div class="modal-buttons">
+                <button class="btn" onclick="downloadVideoClean()">Без водяного знака</button>
+                <button class="btn btn-secondary" onclick="downloadVideoWatermark()">С водяным знаком</button>
+                <button class="btn btn-secondary" onclick="closeDownloadModal()" style="margin-top: 10px;">Отмена</button>
+            </div>
         </div>
     </div>
 
@@ -841,7 +1896,7 @@
             <div class="tg-link-row">
                 <i class="material-icons">link</i>
                 <div class="tg-text-block">
-                    <span class="tg-label">Наш канал (телеграмм):</span>
+                    <span class="tg-label i18n-translatability">Наш канал (телеграмм):</span>
                     <a href="https://t.me/Stalinhead" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead</a>
                 </div>
             </div>
@@ -849,7 +1904,7 @@
             <div class="tg-link-row">
                 <i class="material-icons">group_add</i>
                 <div class="tg-text-block">
-                    <span class="tg-label">Вступить в наши ряды:</span>
+                    <span class="tg-label i18n-translatability">Вступить в наши ряды:</span>
                     <a href="https://t.me/Stalinhead?direct" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead?direct</a>
                 </div>
             </div>
@@ -857,20 +1912,20 @@
             <div class="tg-link-row">
                 <i class="material-icons">chat</i>
                 <div class="tg-text-block">
-                    <span class="tg-label">Пост в Telegram:</span>
+                    <span class="tg-label i18n-translatclassability">Пост в Telegram:</span>
                     <a href="https://t.me/Stalinhead/4843" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead/4843</a>
                 </div>
             </div>
         </div>
 
         <div class="new-disclaimer">
-            <span class="disclaimer-title">ДИСКЛЕЙМЕР:</span>
-            <span class="disclaimer-body">
+            <span class="disclaimer-title i18n-translatability">ДИСКЛЕЙМЕР:</span>
+            <span class="disclaimer-body i18n-translatability">
                 Материалы сайта носят историко-архивный и публицистический характер. ССБА не призывает к противоправным действиям и не одобряет насилие, за исключением необходимой самообороны. 18+
             </span>
         </div>
 
-        <span class="copyright-text">&copy; 2026 ССБА. Все права защищены.</span>
+        <span class="copyright-text i18n-translatability">&copy; 2026 ССБА. Все права защищены.</span>
     </footer>
 </body>
 </html>
