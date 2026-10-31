@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smooth Sliding & Rotation Animator Studio</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 9999px;
+        }
+        input[type=range] {
+            accent-color: #6366f1;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans overflow-x-hidden selection:bg-indigo-500 selection:text-white">
+
+    <!-- Header -->
+    <header class="w-full bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-6 py-3.5 flex flex-wrap justify-between items-center z-10 shadow-lg">
+        <div class="flex items-center space-x-3">
+            <div class="p-2 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+                <i data-lucide="sparkles" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-base md:text-lg leading-tight tracking-wide text-white">Motion Studio Pro</h1>
+                <p class="text-xs text-slate-400">Inertia Motion, Spin Control & 1080p Video Exporter</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-3 mt-3 sm:mt-0">
+            <label class="cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs md:text-sm px-4 py-2 rounded-xl transition-all duration-200 flex items-center space-x-2 shadow-md shadow-indigo-600/20 active:scale-95">
+                <i data-lucide="upload" class="w-4 h-4"></i>
+                <span>Upload Image</span>
+                <input type="file" id="imageInput" accept="image/png, image/webp, image/svg+xml, image/jpeg" class="hidden">
+            </label>
+            <button id="resetBtn" title="Reset Defaults" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-all border border-slate-700">
+                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex flex-col lg:flex-row p-4 md:p-6 gap-6 max-w-[1700px] mx-auto w-full">
+
+        <!-- Animation Canvas Area -->
+        <section class="flex-1 flex flex-col items-center justify-center relative min-h-[400px] md:min-h-[520px] rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden shadow-2xl backdrop-blur-sm group">
+            
+            <!-- Canvas Container -->
+            <div id="canvasWrapper" class="w-full h-full absolute inset-0 flex items-center justify-center transition-colors duration-300">
+                <canvas id="animCanvas" class="w-full h-full block"></canvas>
+            </div>
+
+            <!-- Badge Overlay -->
+            <div class="absolute top-4 left-4 pointer-events-none bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 text-xs text-slate-300 flex items-center space-x-2 shadow-md">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span id="canvasResBadge" class="font-mono text-slate-300">1920x1080 Real-Time Preview</span>
+            </div>
+
+            <!-- Quick Control Floating Bar -->
+            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-slate-700/70 rounded-full px-5 py-2.5 flex items-center space-x-4 shadow-2xl opacity-90 group-hover:opacity-100 transition-opacity">
+                <button id="playPauseBtn" class="text-slate-200 hover:text-indigo-400 transition-colors p-1" title="Play / Pause">
+                    <i data-lucide="pause" id="playIcon" class="w-5 h-5"></i>
+                </button>
+                <div class="h-4 w-[1px] bg-slate-700"></div>
+                <div class="flex items-center space-x-2 text-xs text-slate-300">
+                    <span>Speed:</span>
+                    <span id="speedValDisplay" class="font-mono text-indigo-400 w-8">1.0x</span>
+                </div>
+            </div>
+
+            <!-- Recording Progress Overlay -->
+            <div id="recordingModal" class="hidden absolute inset-0 bg-slate-950/85 backdrop-blur-md z-20 flex flex-col items-center justify-center p-6 space-y-4">
+                <div class="p-3 bg-indigo-600/20 text-indigo-400 rounded-full animate-bounce">
+                    <i data-lucide="video" class="w-8 h-8"></i>
+                </div>
+                <h3 class="text-lg font-bold text-white">Rendering 1080p Video...</h3>
+                <p id="recordStatusText" class="text-xs text-slate-400 font-mono">Recording frame 0/180...</p>
+                <div class="w-64 bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-700">
+                    <div id="recordProgressBar" class="bg-indigo-500 h-full w-0 transition-all duration-75"></div>
+                </div>
+                <button id="cancelRecordBtn" class="text-xs text-slate-400 hover:text-rose-400 underline pt-2">Cancel Recording</button>
+            </div>
+        </section>
+
+        <!-- Controls Sidebar -->
+        <aside class="w-full lg:w-[400px] bg-slate-900/90 border border-slate-800 rounded-2xl p-5 flex flex-col space-y-5 shadow-xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h2 class="font-semibold text-slate-200 flex items-center gap-2 text-xs uppercase tracking-wider">
+                    <i data-lucide="sliders" class="w-4 h-4 text-indigo-400"></i> Motion & Export Settings
+                </h2>
+                <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-mono">1080p Native</span>
+            </div>
+
+            <div class="space-y-4 overflow-y-auto max-h-[calc(100vh-220px)] pr-1">
+                
+                <!-- Movement Speed -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium">
+                        <label for="speedSlider" class="text-slate-300">Slide Speed</label>
+                        <span id="speedVal" class="text-indigo-400 font-mono">1.0</span>
+                    </div>
+                    <input type="range" id="speedSlider" min="0.1" max="4.0" step="0.1" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Amplitude / Traversal Distance (Supports full edges) -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium">
+                        <label for="ampSlider" class="text-slate-300">Travel Distance (Reach Edges)</label>
+                        <span id="ampVal" class="text-indigo-400 font-mono">80%</span>
+                    </div>
+                    <input type="range" id="ampSlider" min="10" max="100" step="1" value="80" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Edge Softness / Inertia -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium">
+                        <label for="easeSlider" class="text-slate-300">Edge Gliding Softness</label>
+                        <span id="easeVal" class="text-indigo-400 font-mono">2.5</span>
+                    </div>
+                    <input type="range" id="easeSlider" min="1.0" max="5.0" step="0.1" value="2.5" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Rotation / Spin Controls -->
+                <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                            <i data-lucide="rotate-cw" class="w-3.5 h-3.5 text-indigo-400"></i> Continuous Rotation
+                        </span>
+                    </div>
+
+                    <!-- Spin Speed -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between text-xs">
+                            <label for="rotSpeedSlider" class="text-slate-400">Rotation Speed (RPM)</label>
+                            <span id="rotSpeedVal" class="text-indigo-400 font-mono">15</span>
+                        </div>
+                        <input type="range" id="rotSpeedSlider" min="-120" max="120" step="1" value="15" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Rotation Sharpness / Easing -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between text-xs">
+                            <label for="rotSharpSlider" class="text-slate-400">Spin Smoothness / Sharpness</label>
+                            <span id="rotSharpVal" class="text-indigo-400 font-mono">Linear</span>
+                        </div>
+                        <input type="range" id="rotSharpSlider" min="0" max="100" step="5" value="0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- Size Scale -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium">
+                        <label for="scaleSlider" class="text-slate-300">Object Size Scale</label>
+                        <span id="scaleVal" class="text-indigo-400 font-mono">1.0x</span>
+                    </div>
+                    <input type="range" id="scaleSlider" min="0.2" max="3.0" step="0.1" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Trajectory Angle -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium">
+                        <label for="angleSlider" class="text-slate-300">Movement Angle</label>
+                        <span id="angleVal" class="text-indigo-400 font-mono">0°</span>
+                    </div>
+                    <input type="range" id="angleSlider" min="-90" max="90" step="1" value="0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Vertical Bob / Harmonic Wave -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium">
+                        <label for="verticalBobSlider" class="text-slate-300">Vertical Float Oscillation</label>
+                        <span id="verticalBobVal" class="text-indigo-400 font-mono">0px</span>
+                    </div>
+                    <input type="range" id="verticalBobSlider" min="0" max="100" step="1" value="0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Canvas Background -->
+                <div class="space-y-2 pt-2 border-t border-slate-800">
+                    <label class="text-xs font-medium text-slate-300 block">Canvas Background</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <button class="bgPickerBtn h-8 rounded-lg border border-emerald-500/50 bg-[#00ff00] hover:scale-105 transition-transform" data-bg="#00ff00" title="Green Screen Chroma"></button>
+                        <button class="bgPickerBtn h-8 rounded-lg border border-slate-700 bg-[#0d1117] hover:scale-105 transition-transform" data-bg="#0d1117" title="Dark Canvas"></button>
+                        <button class="bgPickerBtn h-8 rounded-lg border border-slate-700 bg-white hover:scale-105 transition-transform" data-bg="#ffffff" title="Light Canvas"></button>
+                        <div class="relative h-8 rounded-lg border border-slate-700 overflow-hidden bg-slate-800 flex items-center justify-center">
+                            <input type="color" id="customBgColor" value="#0d1117" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                            <i data-lucide="palette" class="w-4 h-4 text-slate-300 pointer-events-none"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 1080p Video Exporter Section -->
+                <div class="p-3.5 bg-indigo-950/30 border border-indigo-500/30 rounded-xl space-y-3 pt-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+                            <i data-lucide="video" class="w-4 h-4 text-indigo-400"></i> Video Export Studio
+                        </span>
+                        <span class="text-[10px] text-slate-400">1920x1080 HD</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="space-y-1">
+                            <label class="text-[11px] text-slate-400">Frame Rate</label>
+                            <select id="fpsSelect" class="w-full bg-slate-900 border border-slate-700 text-xs rounded-lg p-1.5 text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="30">30 FPS</option>
+                                <option value="60" selected>60 FPS</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[11px] text-slate-400">Duration (Sec)</label>
+                            <select id="durationSelect" class="w-full bg-slate-900 border border-slate-700 text-xs rounded-lg p-1.5 text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="3">3 Seconds</option>
+                                <option value="5" selected>5 Seconds</option>
+                                <option value="10">10 Seconds</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button id="exportVideoBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs py-2.5 rounded-lg transition-all flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30 active:scale-95">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>Export 1080p Video</span>
+                    </button>
+                </div>
+
+            </div>
+        </aside>
+
+    </main>
+
+    <!-- JavaScript logic -->
+    <script>
+        lucide.createIcons();
+
+        // Canvas & Context Setup
+        const canvas = document.getElementById('animCanvas');
+        const ctx = canvas.getContext('2d');
+        const canvasWrapper = document.getElementById('canvasWrapper');
+
+        // UI Controls
+        const imageInput = document.getElementById('imageInput');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedVal = document.getElementById('speedVal');
+        const speedValDisplay = document.getElementById('speedValDisplay');
+        const ampSlider = document.getElementById('ampSlider');
+        const ampVal = document.getElementById('ampVal');
+        const easeSlider = document.getElementById('easeSlider');
+        const easeVal = document.getElementById('easeVal');
+        const rotSpeedSlider = document.getElementById('rotSpeedSlider');
+        const rotSpeedVal = document.getElementById('rotSpeedVal');
+        const rotSharpSlider = document.getElementById('rotSharpSlider');
+        const rotSharpVal = document.getElementById('rotSharpVal');
+        const scaleSlider = document.getElementById('scaleSlider');
+        const scaleVal = document.getElementById('scaleVal');
+        const angleSlider = document.getElementById('angleSlider');
+        const angleVal = document.getElementById('angleVal');
+        const verticalBobSlider = document.getElementById('verticalBobSlider');
+        const verticalBobVal = document.getElementById('verticalBobVal');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const playIcon = document.getElementById('playIcon');
+        const resetBtn = document.getElementById('resetBtn');
+        const bgPickerBtns = document.querySelectorAll('.bgPickerBtn');
+        const customBgColor = document.getElementById('customBgColor');
+
+        // Export Controls
+        const fpsSelect = document.getElementById('fpsSelect');
+        const durationSelect = document.getElementById('durationSelect');
+        const exportVideoBtn = document.getElementById('exportVideoBtn');
+        const recordingModal = document.getElementById('recordingModal');
+        const recordStatusText = document.getElementById('recordStatusText');
+        const recordProgressBar = document.getElementById('recordProgressBar');
+        const cancelRecordBtn = document.getElementById('cancelRecordBtn');
+
+        // State & Physics Parameters
+        let isPlaying = true;
+        let animationTime = 0;
+        let currentRotationRad = 0;
+        let lastTimestamp = 0;
+        let currentBgColor = '#0d1117';
+        let isRecording = false;
+        let cancelRequested = false;
+
+        const config = {
+            speed: 1.0,
+            amplitudeRatio: 80, // % reach screen bounds
+            easingPower: 2.5,
+            rotSpeedRpm: 15,
+            rotSharpness: 0,
+            scale: 1.0,
+            angleDeg: 0,
+            verticalBob: 0
+        };
+
+        let activeImage = null;
+
+        // Default Graphic (SVG circle design)
+        function createDefaultGraphic() {
+            const defaultSvg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+                <circle cx="200" cy="200" r="180" fill="#09090b" stroke="#ffffff" stroke-width="5" />
+                <circle cx="200" cy="200" r="130" fill="none" stroke="#6366f1" stroke-width="4" stroke-dasharray="16 10" />
+                <circle cx="200" cy="200" r="80" fill="none" stroke="#ffffff" stroke-width="4" />
+                <path d="M 130 200 C 130 140, 270 140, 270 200 C 270 260, 130 260, 130 200 Z" fill="none" stroke="#38bdf8" stroke-width="4"/>
+                <circle cx="200" cy="200" r="20" fill="#ffffff" />
+            </svg>`;
+            
+            const img = new Image();
+            img.src = 'data:image/svg+xml;base64,' + btoa(defaultSvg);
+            img.onload = () => {
+                activeImage = img;
+            };
+        }
+
+        // Image Upload
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        activeImage = img;
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Resize Canvas for viewport preview
+        function resizeCanvas() {
+            if (isRecording) return; // Lock resolution during recording
+            const rect = canvasWrapper.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        // Render Frame Logic (Shared between live preview and offscreen 1080p recorder)
+        function renderScene(targetCtx, width, height, tTime, rotAngle) {
+            // Background
+            targetCtx.fillStyle = currentBgColor;
+            targetCtx.fillRect(0, 0, width, height);
+
+            if (!activeImage) return;
+
+            targetCtx.save();
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+
+            // Maximum bounds reach calculations
+            const maxOffset = (width * (config.amplitudeRatio / 100)) / 2;
+
+            // Smooth sliding motion curve
+            const rawSin = Math.sin(tTime);
+            const smoothOffset = Math.sign(rawSin) * Math.pow(Math.abs(rawSin), 1 / config.easingPower) * maxOffset;
+
+            // Secondary wave oscillation
+            const verticalOffset = Math.sin(tTime * 2) * config.verticalBob;
+
+            // Angular translation
+            const moveRad = (config.angleDeg * Math.PI) / 180;
+            const offsetX = Math.cos(moveRad) * smoothOffset;
+            const offsetY = Math.sin(moveRad) * smoothOffset + verticalOffset;
+
+            targetCtx.translate(centerX + offsetX, centerY + offsetY);
+
+            // Apply Continuous Rotation
+            targetCtx.rotate(rotAngle);
+
+            // Image Scaling
+            const baseSize = Math.min(width, height) * 0.35;
+            const aspect = activeImage.width / activeImage.height;
+            const drawWidth = baseSize * config.scale;
+            const drawHeight = (baseSize / aspect) * config.scale;
+
+            targetCtx.drawImage(
+                activeImage,
+                -drawWidth / 2,
+                -drawHeight / 2,
+                drawWidth,
+                drawHeight
+            );
+
+            targetCtx.restore();
+        }
+
+        // Live Animation Loop
+        function animate(timestamp) {
+            if (!lastTimestamp) lastTimestamp = timestamp;
+            const delta = (timestamp - lastTimestamp) / 1000;
+            lastTimestamp = timestamp;
+
+            if (isPlaying && !isRecording) {
+                animationTime += delta * config.speed * 2.2;
+
+                // Rotation calculation
+                const baseRps = (config.rotSpeedRpm / 60) * Math.PI * 2;
+                
+                // Rotation modulation based on movement position if sharpness > 0
+                let currentRps = baseRps;
+                if (config.rotSharpness > 0) {
+                    const velocityFactor = Math.abs(Math.cos(animationTime));
+                    const mix = config.rotSharpness / 100;
+                    currentRps = baseRps * ((1 - mix) + velocityFactor * mix * 1.5);
+                }
+
+                currentRotationRad += currentRps * delta;
+            }
+
+            if (!isRecording) {
+                const width = canvas.width / window.devicePixelRatio;
+                const height = canvas.height / window.devicePixelRatio;
+                renderScene(ctx, width, height, animationTime, currentRotationRad);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 1080p Video Export Render System
+        exportVideoBtn.addEventListener('click', async () => {
+            if (isRecording) return;
+
+            const targetFps = parseInt(fpsSelect.value, 10);
+            const durationSec = parseInt(durationSelect.value, 10);
+            const totalFrames = targetFps * durationSec;
+
+            // Setup high-res offscreen rendering canvas at full 1080p (1920x1080)
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = 1920;
+            exportCanvas.height = 1080;
+            const exportCtx = exportCanvas.getContext('2d');
+
+            // Setup MediaRecorder
+            const stream = exportCanvas.captureStream(targetFps);
+            let mimeType = 'video/webm;codecs=vp9';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = 'video/webm';
+            }
+
+            const mediaRecorder = new MediaRecorder(stream, {
+                mimeType: mimeType,
+                videoBitsPerSecond: 12000000 // High 12 Mbps bitrate for crystal clear 1080p
+            });
+
+            const recordedChunks = [];
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                if (!cancelRequested && recordedChunks.length > 0) {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `smooth_motion_1080p_${targetFps}fps.webm`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }
+                isRecording = false;
+                cancelRequested = false;
+                recordingModal.classList.add('hidden');
+                resizeCanvas();
+            };
+
+            // Start Recording Process
+            isRecording = true;
+            cancelRequested = false;
+            recordingModal.classList.remove('hidden');
+            mediaRecorder.start();
+
+            const dt = 1 / targetFps;
+            let simTime = animationTime;
+            let simRotation = currentRotationRad;
+
+            for (let i = 0; i < totalFrames; i++) {
+                if (cancelRequested) break;
+
+                simTime += dt * config.speed * 2.2;
+                const baseRps = (config.rotSpeedRpm / 60) * Math.PI * 2;
+                let currentRps = baseRps;
+                if (config.rotSharpness > 0) {
+                    const velocityFactor = Math.abs(Math.cos(simTime));
+                    const mix = config.rotSharpness / 100;
+                    currentRps = baseRps * ((1 - mix) + velocityFactor * mix * 1.5);
+                }
+                simRotation += currentRps * dt;
+
+                // Render 1080p frame
+                renderScene(exportCtx, 1920, 1080, simTime, simRotation);
+
+                // Update Progress UI
+                const progressPct = Math.round(((i + 1) / totalFrames) * 100);
+                recordProgressBar.style.width = `${progressPct}%`;
+                recordStatusText.textContent = `Rendering 1080p Frame ${i + 1} / ${totalFrames} (${progressPct}%)`;
+
+                // Give frame rendering breathing room
+                await new Promise(r => setTimeout(r, 8));
+            }
+
+            if (mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+        });
+
+        cancelRecordBtn.addEventListener('click', () => {
+            cancelRequested = true;
+        });
+
+        // Sliders & Controls Listeners
+        speedSlider.addEventListener('input', (e) => {
+            config.speed = parseFloat(e.target.value);
+            speedVal.textContent = config.speed.toFixed(1);
+            speedValDisplay.textContent = `${config.speed.toFixed(1)}x`;
+        });
+
+        ampSlider.addEventListener('input', (e) => {
+            config.amplitudeRatio = parseFloat(e.target.value);
+            ampVal.textContent = `${config.amplitudeRatio}%`;
+        });
+
+        easeSlider.addEventListener('input', (e) => {
+            config.easingPower = parseFloat(e.target.value);
+            easeVal.textContent = config.easingPower.toFixed(1);
+        });
+
+        rotSpeedSlider.addEventListener('input', (e) => {
+            config.rotSpeedRpm = parseInt(e.target.value, 10);
+            rotSpeedVal.textContent = `${config.rotSpeedRpm} RPM`;
+        });
+
+        rotSharpSlider.addEventListener('input', (e) => {
+            config.rotSharpness = parseInt(e.target.value, 10);
+            rotSharpVal.textContent = config.rotSharpness === 0 ? 'Linear' : `${config.rotSharpness}% Dynamic`;
+        });
+
+        scaleSlider.addEventListener('input', (e) => {
+            config.scale = parseFloat(e.target.value);
+            scaleVal.textContent = `${config.scale.toFixed(1)}x`;
+        });
+
+        angleSlider.addEventListener('input', (e) => {
+            config.angleDeg = parseInt(e.target.value, 10);
+            angleVal.textContent = `${config.angleDeg}°`;
+        });
+
+        verticalBobSlider.addEventListener('input', (e) => {
+            config.verticalBob = parseInt(e.target.value, 10);
+            verticalBobVal.textContent = `${config.verticalBob}px`;
+        });
+
+        playPauseBtn.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            playIcon.setAttribute('data-lucide', isPlaying ? 'pause' : 'play');
+            lucide.createIcons();
+        });
+
+        bgPickerBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentBgColor = btn.getAttribute('data-bg');
+                canvasWrapper.style.backgroundColor = currentBgColor;
+            });
+        });
+
+        customBgColor.addEventListener('input', (e) => {
+            currentBgColor = e.target.value;
+            canvasWrapper.style.backgroundColor = currentBgColor;
+        });
+
+        resetBtn.addEventListener('click', () => {
+            speedSlider.value = 1.0;
+            ampSlider.value = 80;
+            easeSlider.value = 2.5;
+            rotSpeedSlider.value = 15;
+            rotSharpSlider.value = 0;
+            scaleSlider.value = 1.0;
+            angleSlider.value = 0;
+            verticalBobSlider.value = 0;
+
+            config.speed = 1.0;
+            config.amplitudeRatio = 80;
+            config.easingPower = 2.5;
+            config.rotSpeedRpm = 15;
+            config.rotSharpness = 0;
+            config.scale = 1.0;
+            config.angleDeg = 0;
+            config.verticalBob = 0;
+
+            speedVal.textContent = '1.0';
+            speedValDisplay.textContent = '1.0x';
+            ampVal.textContent = '80%';
+            easeVal.textContent = '2.5';
+            rotSpeedVal.textContent = '15 RPM';
+            rotSharpVal.textContent = 'Linear';
+            scaleVal.textContent = '1.0x';
+            angleVal.textContent = '0°';
+            verticalBobVal.textContent = '0px';
+
+            currentBgColor = '#0d1117';
+            canvasWrapper.style.backgroundColor = currentBgColor;
+        });
+
+        window.onload = () => {
+            resizeCanvas();
+            createDefaultGraphic();
+            requestAnimationFrame(animate);
+        };
+    </script>
+</body>
+</html>
