@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ССБА — Просмотр публикации</title>
+    <link rel="icon" type="image/png" href="ssma.png">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, doc, getDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
+            authDomain: "ssba-58900.firebaseapp.com",
+            databaseURL: "https://ssba-58900-default-rtdb.firebaseio.com",
+            projectId: "ssba-58900",
+            storageBucket: "ssba-58900.firebasestorage.app",
+            messagingSenderId: "615638249829",
+            appId: "1:615638249829:web:a68cd961fa79ebc7ef718c",
+            measurementId: "G-ZY8PQ2DXE3"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let currentLang = 'ru';
+        const translationCache = new Map();
+        let activeVideoForDownload = '';
+        let postId = '';
+        let sectionType = 'posts';
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function isValidURL(url) {
+            if (!url) return false;
+            try {
+                const parsed = new URL(url, window.location.origin);
+                return ['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol) || url.startsWith('/') || url.startsWith('#');
+            } catch { return false; }
+        }
+
+        async function fetchTranslation(text, targetLang = 'en') {
+            if (!text || !text.trim() || targetLang === 'ru') return text;
+            const cacheKey = `${targetLang}:${text}`;
+            if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
+
+            try {
+                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data && data[0]) {
+                    const result = data[0].map(item => item[0]).join('');
+                    translationCache.set(cacheKey, result);
+                    return result;
+                }
+            } catch (e) { console.warn("Translate error:", e); }
+            return text;
+        }
+
+        window.parseContent = function(text, mediaUrls, fallbackUrl) {
+            let urls = [];
+            if (mediaUrls && Array.isArray(mediaUrls)) urls = [...mediaUrls];
+            else if (fallbackUrl) urls = [fallbackUrl];
+            
+            let safeText = escapeHTML(text || "");
+            safeText = safeText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+                if (isValidURL(url.trim())) return `<a href="${escapeHTML(url.trim())}" target="_blank" class="post-inline-link" rel="noopener noreferrer">${linkText}</a>`;
+                return linkText;
+            });
+            
+            let usedIndexes = new Set();
+            safeText = safeText.replace(/\[img(\d+)\]/g, (match, num) => {
+                const idx = parseInt(num) - 1;
+                if (urls[idx] && isValidURL(urls[idx])) {
+                    usedIndexes.add(idx);
+                    return `<img src="${escapeHTML(urls[idx])}" class="inline-post-img" alt="Фото" loading="lazy">`;
+                }
+                return "";
+            });
+
+            let topImagesHtml = "";
+            urls.forEach((url, idx) => {
+                if (!usedIndexes.has(idx) && isValidURL(url)) {
+                    topImagesHtml += `<img src="${escapeHTML(url)}" class="inline-post-img" style="margin-bottom:15px;" alt="Фото" loading="lazy">`;
+                }
+            });
+
+            return topImagesHtml + `<div class="word-text i18n-translatability" data-original="${escapeHTML(text || "")}">${safeText}</div>`;
+        };
+
+        async function initDynamicQuotes() {
+            const quoteContainer = document.getElementById("quote-container");
+            try {
+                const querySnapshot = await getDocs(collection(db, "quotes"));
+                let loadedQuotes = [];
+                querySnapshot.forEach((docSnap) => {
+                    const d = docSnap.data();
+                    if(d.text && d.author) loadedQuotes.push({ text: d.text, author: d.author });
+                });
+                if (loadedQuotes.length > 0) {
+                    const selected = loadedQuotes[Math.floor(Math.random() * loadedQuotes.length)];
+                    quoteContainer.textContent = `«${selected.text}» — ${selected.author}`;
+                } else {
+                    quoteContainer.textContent = `«Без революционной теории не может быть и революционного движения.» — В. И. Ленин`;
+                }
+            } catch { quoteContainer.textContent = "«Без революционной теории не может быть и революционного движения.» — В. И. Ленин"; }
+        }
+
+        window.toggleLangModal = function() {
+            const modal = document.getElementById('lang-modal');
+            modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+        };
+
+        document.addEventListener('click', (e) => {
+            const modal = document.getElementById('lang-modal');
+            const box = document.querySelector('.lang-switch-box');
+            if (modal && modal.style.display === 'flex' && box && !box.contains(e.target)) modal.style.display = 'none';
+            document.querySelectorAll('.v-more-menu.open').forEach(menu => {
+                if (!menu.contains(e.target) && !menu.previousElementSibling.contains(e.target)) menu.classList.remove('open');
+            });
+        });
+
+        window.switchLanguage = async function(lang) {
+            currentLang = lang;
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
+                btn.disabled = true;
+            });
+            document.getElementById('lang-modal').style.display = 'none';
+            await applyLanguage(lang);
+            document.querySelectorAll('.lang-btn').forEach(btn => btn.disabled = false);
+        };
+
+        async function applyLanguage(lang) {
+            const elements = Array.from(document.querySelectorAll('.i18n-translatability, .single-card h3, .word-text'));
+            const container = document.getElementById('progress-bar-container');
+            const label = document.getElementById('progress-bar-label');
+            const percent = document.getElementById('progress-bar-percent');
+            const fill = document.getElementById('progress-bar-fill');
+
+            if (lang === 'ru') {
+                container.style.display = 'none';
+                elements.forEach(el => {
+                    const orig = el.getAttribute('data-original') || el.textContent.trim();
+                    el.classList.remove('translating-pulse');
+                    el.textContent = orig;
+                });
+                return;
+            }
+
+            label.textContent = 'Выполняется перевод страницы...';
+            container.style.display = 'block';
+            percent.textContent = '0%';
+            fill.style.width = '0%';
+
+            elements.forEach(el => {
+                if (!el.getAttribute('data-original')) el.setAttribute('data-original', el.textContent.trim());
+                el.classList.add('translating-pulse');
+            });
+
+            let done = 0;
+            for (const el of elements) {
+                const orig = el.getAttribute('data-original') || el.textContent.trim();
+                const translated = await fetchTranslation(orig, lang);
+                el.classList.remove('translating-pulse');
+                el.textContent = translated;
+                done++;
+                const p = Math.round((done / elements.length) * 100);
+                percent.textContent = `${p}%`;
+                fill.style.width = `${p}%`;
+            }
+            setTimeout(() => { if (currentLang !== 'ru') container.style.display = 'none'; }, 1500);
+        }
+
+        window.initCustomAudioPlayer = function(container) {
+            const player = container.querySelector('.custom-audio-player');
+            if (!player) return;
+            const audio = player.querySelector('audio');
+            const playBtn = player.querySelector('.play-btn');
+            const playIcon = playBtn.querySelector('.material-icons');
+            const progressBar = player.querySelector('.progress-bar');
+            const progressFill = player.querySelector('.progress-fill');
+            const timeDisplay = player.querySelector('.time-display');
+            const volumeBtn = player.querySelector('.volume-btn');
+
+            const formatTime = (s) => { if (isNaN(s)) return "00:00"; const m = Math.floor(s/60), sec = Math.floor(s%60); return `${m<10?'0':''}${m}:${sec<10?'0':''}${sec}`; };
+            playBtn.addEventListener('click', () => { audio.paused ? audio.play() : audio.pause(); });
+            audio.addEventListener('play', () => { playIcon.textContent = 'pause'; });
+            audio.addEventListener('pause', () => { playIcon.textContent = 'play_arrow'; });
+            audio.addEventListener('timeupdate', () => {
+                const p = (audio.currentTime / audio.duration) * 100;
+                progressFill.style.width = `${p || 0}%`;
+                timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+            });
+            audio.addEventListener('loadedmetadata', () => { timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`; });
+
+            let isDragging = false;
+            function scrub(e) {
+                const rect = progressBar.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                if (audio.duration) {
+                    audio.currentTime = pos * audio.duration;
+                    progressFill.style.width = `${pos * 100}%`;
+                }
+            }
+
+            progressBar.addEventListener('mousedown', (e) => { isDragging = true; scrub(e); });
+            window.addEventListener('mousemove', (e) => { if (isDragging) scrub(e); });
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            progressBar.addEventListener('touchstart', (e) => { isDragging = true; scrub(e); }, {passive: true});
+            window.addEventListener('touchmove', (e) => { if (isDragging) scrub(e); }, {passive: true});
+            window.addEventListener('touchend', () => { isDragging = false; });
+        };
+
+        window.initCustomVideoPlayer = function(container) {
+            const player = container.querySelector('.custom-video-player');
+            if (!player) return;
+
+            const video = player.querySelector('video');
+            const wrapper = player.querySelector('.v-wrapper');
+            const overlay = player.querySelector('.v-overlay');
+            const playCenterBtn = player.querySelector('.v-play-center');
+            const playBtn = player.querySelector('.v-play-btn');
+            const playIcon = playBtn ? playBtn.querySelector('.material-icons') : null;
+            const centerIcon = playCenterBtn ? playCenterBtn.querySelector('.material-icons') : null;
+            const progressBar = player.querySelector('.v-progress-bar');
+            const progressFill = player.querySelector('.v-progress-fill');
+            const timeDisplay = player.querySelector('.v-time-display');
+            
+            const moreBtn = player.querySelector('.v-more-btn');
+            const moreMenu = player.querySelector('.v-more-menu');
+            const menuDownloadBtn = player.querySelector('.v-menu-download');
+            const menuShareBtn = player.querySelector('.v-menu-share');
+            const menuMuteBtn = player.querySelector('.v-menu-mute');
+            const menuSpeedBtn = player.querySelector('.v-menu-speed');
+            const menuQualityBtn = player.querySelector('.v-menu-quality');
+            const fsBtn = player.querySelector('.v-fs-btn');
+
+            const speedOverlay = player.querySelector('.v-gesture-speed');
+            const seekLeftOverlay = player.querySelector('.v-gesture-seek-left');
+            const seekRightOverlay = player.querySelector('.v-gesture-seek-right');
+
+            let isLoaded = false;
+            wrapper.addEventListener('contextmenu', (e) => e.preventDefault());
+
+            function formatTime(seconds) {
+                if (isNaN(seconds) || !isFinite(seconds)) return "00:00";
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            }
+
+            function loadVideo() {
+                if (isLoaded) return;
+                const src = video.getAttribute('data-src');
+                if (src && !video.src) {
+                    video.src = src;
+                    video.load();
+                    video.currentTime = 0.1;
+                }
+            }
+
+            video.addEventListener('loadedmetadata', () => {
+                isLoaded = true;
+                video.currentTime = 0.1;
+                if (timeDisplay) timeDisplay.textContent = `00:00 / ${formatTime(video.duration)}`;
+            });
+
+            function togglePlay() {
+                if (!isLoaded) {
+                    loadVideo();
+                    video.autoplay = true;
+                    if (video.readyState >= 1) video.play().catch(e => {});
+                    return;
+                }
+                if (video.paused) {
+                    video.play().catch(e => {});
+                } else {
+                    video.pause();
+                }
+            }
+
+            if (playCenterBtn) playCenterBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+            if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+            if (overlay) overlay.addEventListener('click', togglePlay);
+
+            let lastTapTime = 0;
+            let longPressTimer = null;
+
+            wrapper.addEventListener('touchstart', (e) => {
+                loadVideo();
+                const now = Date.now();
+                const tapGap = now - lastTapTime;
+                const rect = wrapper.getBoundingClientRect();
+                const touchX = e.touches[0].clientX - rect.left;
+
+                if (tapGap < 300 && tapGap > 0) {
+                    clearTimeout(longPressTimer);
+                    if (touchX > rect.width / 2) {
+                        video.currentTime = Math.min(video.duration || 0, video.currentTime + 5);
+                        triggerGestureAnimation(seekRightOverlay);
+                    } else {
+                        video.currentTime = Math.max(0, video.currentTime - 5);
+                        triggerGestureAnimation(seekLeftOverlay);
+                    }
+                    e.preventDefault();
+                } else {
+                    longPressTimer = setTimeout(() => {
+                        video.playbackRate = 2.0;
+                        if (speedOverlay) speedOverlay.style.display = 'flex';
+                    }, 400);
+                }
+                lastTapTime = now;
+            }, {passive: false});
+
+            wrapper.addEventListener('touchend', () => {
+                clearTimeout(longPressTimer);
+                video.playbackRate = 1.0;
+                if (speedOverlay) speedOverlay.style.display = 'none';
+            });
+
+            function triggerGestureAnimation(element) {
+                if (!element) return;
+                element.style.display = 'flex';
+                element.classList.remove('animate-seek');
+                void element.offsetWidth;
+                element.classList.add('animate-seek');
+                setTimeout(() => { element.style.display = 'none'; }, 600);
+            }
+
+            video.addEventListener('play', () => {
+                if (playIcon) playIcon.textContent = 'pause';
+                if (centerIcon) centerIcon.textContent = 'pause';
+                player.classList.add('is-playing');
+            });
+
+            video.addEventListener('pause', () => {
+                if (playIcon) playIcon.textContent = 'play_arrow';
+                if (centerIcon) centerIcon.textContent = 'play_arrow';
+                player.classList.remove('is-playing');
+            });
+
+            video.addEventListener('timeupdate', () => {
+                if (video.duration) {
+                    const percent = (video.currentTime / video.duration) * 100;
+                    if (progressFill) progressFill.style.width = `${percent || 0}%`;
+                    if (timeDisplay) timeDisplay.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+                }
+            });
+
+            let isVideoDragging = false;
+            function scrubVideo(e) {
+                const rect = progressBar.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                if (video.duration) {
+                    video.currentTime = pos * video.duration;
+                    progressFill.style.width = `${pos * 100}%`;
+                }
+            }
+
+            if (progressBar) {
+                progressBar.addEventListener('mousedown', (e) => { isVideoDragging = true; scrubVideo(e); });
+                window.addEventListener('mousemove', (e) => { if (isVideoDragging) scrubVideo(e); });
+                window.addEventListener('mouseup', () => { isVideoDragging = false; });
+                progressBar.addEventListener('touchstart', (e) => { isVideoDragging = true; scrubVideo(e); }, {passive: true});
+                window.addEventListener('touchmove', (e) => { if (isVideoDragging) scrubVideo(e); }, {passive: true});
+                window.addEventListener('touchend', () => { isVideoDragging = false; });
+            }
+
+            if (menuMuteBtn) {
+                menuMuteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    video.muted = !video.muted;
+                    menuMuteBtn.innerHTML = `<i class="material-icons">${video.muted ? 'volume_up' : 'volume_off'}</i> ${video.muted ? 'Включить звук' : 'Убрать звук'}`;
+                });
+            }
+
+            if (menuSpeedBtn) {
+                menuSpeedBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    openSelectorModal('Скорость воспроизведения', ['0.5x', '1x', '1.25x', '1.5x', '2x'], `${video.playbackRate}x`, (val) => {
+                        video.playbackRate = parseFloat(val);
+                    });
+                });
+            }
+
+            if (menuQualityBtn) {
+                menuQualityBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    openSelectorModal('Качество видео', ['Авто', '720p', '480p', '360p'], 'Авто', (val) => {});
+                });
+            }
+
+            if (moreBtn && moreMenu) {
+                moreBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    moreMenu.classList.toggle('open');
+                });
+            }
+
+            if (fsBtn) {
+                fsBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    if (!document.fullscreenElement) {
+                        if (player.requestFullscreen) await player.requestFullscreen();
+                    } else {
+                        if (document.exitFullscreen) await document.exitFullscreen();
+                    }
+                });
+            }
+
+            if (menuDownloadBtn) {
+                menuDownloadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    if (!isLoaded) loadVideo();
+                    activeVideoForDownload = video.currentSrc || video.src || video.getAttribute('data-src');
+                    window.downloadVideoWatermark();
+                });
+            }
+
+            if (menuShareBtn) {
+                menuShareBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    const shareUrl = window.location.href;
+                    if (navigator.share) {
+                        navigator.share({ title: document.title, url: shareUrl }).catch(() => {});
+                    } else {
+                        navigator.clipboard.writeText(shareUrl).then(() => { alert('Ссылка скопирована!'); });
+                    }
+                });
+            }
+
+            player.addEventListener('mouseenter', loadVideo, { once: true });
+            player.addEventListener('touchstart', loadVideo, { once: true });
+        };
+
+        let selectorCallback = null;
+        window.openSelectorModal = function(title, options, currentVal, callback) {
+            document.getElementById('selector-modal-title').textContent = title;
+            selectorCallback = callback;
+            const container = document.getElementById('selector-options-container');
+            let html = '';
+            options.forEach(opt => {
+                const isActive = opt === currentVal ? 'active' : '';
+                html += `<button class="selector-option-btn ${isActive}" type="button" onclick="selectOption('${opt}')">${opt}</button>`;
+            });
+            container.innerHTML = html;
+            document.getElementById('selector-modal').style.display = 'flex';
+        };
+
+        window.selectOption = function(val) {
+            document.querySelectorAll('.selector-option-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === val);
+            });
+        };
+
+        window.closeSelectorModal = function(apply = false) {
+            if (apply && selectorCallback) {
+                const activeBtn = document.querySelector('.selector-option-btn.active');
+                if (activeBtn) selectorCallback(activeBtn.textContent);
+            }
+            document.getElementById('selector-modal').style.display = 'none';
+            selectorCallback = null;
+        };
+
+        function showProgressUI(title) {
+            const container = document.getElementById('progress-bar-container');
+            const label = document.getElementById('progress-bar-label');
+            const percentText = document.getElementById('progress-bar-percent');
+            const fill = document.getElementById('progress-bar-fill');
+            label.textContent = title;
+            percentText.textContent = '0%';
+            fill.style.width = '0%';
+            container.style.display = 'block';
+            return (p) => {
+                const val = Math.min(100, Math.max(0, Math.round(p)));
+                percentText.textContent = `${val}%`;
+                fill.style.width = `${val}%`;
+            };
+        }
+        function hideProgressUI() {
+            setTimeout(() => { document.getElementById('progress-bar-container').style.display = 'none'; }, 1000);
+        }
+
+        window.downloadVideoWatermark = async function() {
+            if (!activeVideoForDownload) return;
+            const src = activeVideoForDownload;
+            const update = showProgressUI("Скачивание видео...");
+            try {
+                const tempVideo = document.createElement('video');
+                tempVideo.crossOrigin = "anonymous";
+                tempVideo.src = src;
+                tempVideo.muted = true;
+                tempVideo.preload = "auto";
+                await new Promise((resolve, reject) => {
+                    tempVideo.onloadeddata = resolve;
+                    tempVideo.onerror = reject;
+                });
+                const duration = tempVideo.duration || 1;
+                const canvas = document.createElement('canvas');
+                canvas.width = tempVideo.videoWidth || 1280;
+                canvas.height = tempVideo.videoHeight || 720;
+                const ctx = canvas.getContext('2d');
+                const stream = canvas.captureStream(30);
+                let mimeType = 'video/webm;codecs=vp9';
+                if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+                const mediaRecorder = new MediaRecorder(stream, { mimeType });
+                const chunks = [];
+                mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    update(100);
+                    const blob = new Blob(chunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'SSBA_video.webm';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    hideProgressUI();
+                };
+                tempVideo.currentTime = 0;
+                await tempVideo.play();
+                mediaRecorder.start();
+                function drawFrame() {
+                    if (tempVideo.paused || tempVideo.ended) { mediaRecorder.stop(); return; }
+                    ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
+                    ctx.save();
+                    ctx.globalAlpha = 0.55;
+                    ctx.fillStyle = "#ffffff";
+                    const fontSize = Math.max(16, Math.round(canvas.height * 0.045));
+                    ctx.font = `bold ${fontSize}px Montserrat, sans-serif`;
+                    ctx.shadowColor = "rgba(0,0,0,0.8)";
+                    ctx.shadowBlur = 6;
+                    ctx.fillText("su-ssma.netlify.app", canvas.width - (fontSize * 11), canvas.height - (fontSize * 1.2));
+                    ctx.restore();
+                    update((tempVideo.currentTime / duration) * 100);
+                    requestAnimationFrame(drawFrame);
+                }
+                drawFrame();
+            } catch (err) {
+                const a = document.createElement('a');
+                a.href = src;
+                a.download = 'SSBA_video.mp4';
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                hideProgressUI();
+            }
+        };
+
+        async function loadSinglePost() {
+            const urlParams = new URLSearchParams(window.location.search);
+            postId = urlParams.get('id');
+            sectionType = urlParams.get('type') || 'posts';
+
+            const container = document.getElementById('single-post-container');
+
+            if (!postId) {
+                container.innerHTML = `<div class="single-card"><p style="text-align:center; color:#ff3333;">Ошибка: Запись не найдена.</p><a href="index.html" class="btn" style="margin-top:15px;">На главную</a></div>`;
+                return;
+            }
+
+            try {
+                const docRef = doc(db, sectionType, postId);
+                const docSnap = await getDoc(docRef);
+
+                if (!docSnap.exists()) {
+                    container.innerHTML = `<div class="single-card"><p style="text-align:center; color:#ff3333;">Публикация не найдена или была удалена.</p><a href="index.html" class="btn" style="margin-top:15px;">На главную</a></div>`;
+                    return;
+                }
+
+                const data = docSnap.data();
+                try { await updateDoc(docRef, { views: increment(1) }); } catch(e){}
+
+                const title = data.title || "[Без заголовка]";
+                const safeTitle = escapeHTML(title);
+                document.title = `${safeTitle} — ССБА`;
+
+                const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
+                const safeMediaUrl = isValidURL(mediaUrl) ? escapeHTML(mediaUrl) : "";
+
+                let parsedContent = "";
+                if (sectionType === "posts" || sectionType === "photo" || sectionType === "books") {
+                    parsedContent = parseContent(data.text, data.mediaUrls, data.mediaUrl);
+                } else {
+                    parsedContent = parseContent(data.text, null, null);
+                }
+
+                let html = "";
+                if (sectionType === "video") {
+                    html = `
+                        <div class="single-card media-card">
+                            <h3 class="media-title-center i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
+                            <div style="width: 100%;">
+                                ${safeMediaUrl ? `
+                                    <div class="custom-video-player">
+                                        <div class="v-wrapper">
+                                            <video preload="metadata" playsinline webkit-playsinline data-src="${safeMediaUrl}"></video>
+                                            <div class="v-overlay">
+                                                <button class="v-play-center" type="button"><i class="material-icons">play_arrow</i></button>
+                                            </div>
+                                            <div class="v-gesture-speed"><i class="material-icons">fast_forward</i> 2X</div>
+                                            <div class="v-gesture-seek v-gesture-seek-left"><i class="material-icons">fast_rewind</i> <span>-5 сек</span></div>
+                                            <div class="v-gesture-seek v-gesture-seek-right"><i class="material-icons">fast_forward</i> <span>+5 сек</span></div>
+                                        </div>
+                                        <div class="v-controls">
+                                            <button class="v-btn v-play-btn" type="button"><i class="material-icons">play_arrow</i></button>
+                                            <div class="v-progress-bar"><div class="v-progress-fill"></div></div>
+                                            <span class="v-time-display">00:00 / 00:00</span>
+                                            <div style="position: relative;">
+                                                <button class="v-btn v-more-btn" type="button" title="Ещё"><i class="material-icons">more_vert</i></button>
+                                                <div class="v-more-menu">
+                                                    <button class="v-menu-item v-menu-mute" type="button"><i class="material-icons">volume_off</i> Убрать звук</button>
+                                                    <button class="v-menu-item v-menu-speed" type="button"><i class="material-icons">speed</i> Скорость</button>
+                                                    <button class="v-menu-item v-menu-quality" type="button"><i class="material-icons">high_quality</i> Качество</button>
+                                                    <button class="v-menu-item v-menu-download" type="button"><i class="material-icons">file_download</i> Скачать</button>
+                                                    <button class="v-menu-item v-menu-share" type="button"><i class="material-icons">share</i> Поделиться</button>
+                                                </div>
+                                            </div>
+                                            <button class="v-btn v-fs-btn" type="button" title="На весь экран"><i class="material-icons">fullscreen</i></button>
+                                        </div>
+                                    </div>
+                                ` : ''}
+                                ${parsedContent}
+                            </div>
+                        </div>`;
+                } else if (sectionType === "music") {
+                    html = `
+                        <div class="single-card media-card">
+                            <h3 class="media-title-center i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
+                            <div style="width: 100%;">
+                                ${safeMediaUrl ? `
+                                    <div class="custom-audio-player">
+                                        <audio src="${safeMediaUrl}" preload="metadata"></audio>
+                                        <button class="play-btn" type="button"><i class="material-icons">play_arrow</i></button>
+                                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                                        <span class="time-display">00:00 / 00:00</span>
+                                        <button class="volume-btn" type="button"><i class="material-icons">volume_up</i></button>
+                                    </div>
+                                ` : ''}
+                                ${parsedContent}
+                            </div>
+                        </div>`;
+                } else {
+                    html = `
+                        <div class="single-card">
+                            <h3 class="i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
+                            <div>${parsedContent}</div>
+                            ${sectionType === "books" && safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn i18n-translatability" style="margin-top:15px;">Скачать / Читать</a>` : ''}
+                        </div>`;
+                }
+
+                container.innerHTML = html;
+
+                if (sectionType === "music") {
+                    window.initCustomAudioPlayer(container);
+                } else if (sectionType === "video") {
+                    window.initCustomVideoPlayer(container);
+                }
+
+            } catch (err) {
+                console.error("Load single post error:", err);
+                container.innerHTML = `<div class="single-card"><p style="text-align:center; color:#ff3333;">Ошибка при загрузке информации.</p><a href="index.html" class="btn" style="margin-top:15px;">На главную</a></div>`;
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initDynamicQuotes();
+            loadSinglePost();
+        });
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent !important; outline: none; }
+        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; overflow-x: hidden; }
+        
+        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; position: relative; z-index: 10; }
+        .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 500px; margin: 0 auto; }
+        .logo-img { max-width: 160px; height: auto; display: block; margin-bottom: 15px; }
+        .logo h1 { font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; letter-spacing: -1px; color: #EBEBEB; text-transform: uppercase; line-height: 1; text-shadow: 4px 4px 0px #dd0000; margin-bottom: 30px; }
+        .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; line-height: 1.5; text-align: center; margin-bottom: 35px; padding: 0 10px; }
+        .quote-box { font-size: 0.95rem; color: #8a8a8f; margin-bottom: 40px; font-style: italic; padding: 0 15px; min-height: 40px; }
+
+        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; width: 100%; max-width: 750px; margin: 0 auto 20px auto; }
+        nav a { color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px; padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); cursor: pointer; }
+        nav a:hover, nav a.active { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
+
+        .red-bar { width: 100%; height: 5px; background-color: #dd0000; position: relative; z-index: 10; }
+
+        .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; }
+        .animated-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.12; }
+        .bg-grid { width: 200%; height: 200%; position: absolute; top: -50%; left: -50%; background-image: url('https://i.ibb.co/mCdNQXFF/2749-20260614142242.png'); background-size: 65px 65px; background-repeat: repeat; animation: moveDiag 12s linear infinite; }
+        @keyframes moveDiag { 0% { transform: translate(0, 0); } 100% { transform: translate(-65px, 65px); } }
+
+        .container { position: relative; z-index: 5; max-width: 800px; margin: 0 auto; padding: 50px 20px; min-height: 500px; }
+
+        .translation-progress-box { display: none; background: rgba(26, 26, 28, 0.95); border: 1px solid #dd0000; padding: 12px 18px; margin-bottom: 25px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5); }
+        .translation-status-info { display: flex; justify-content: space-between; align-items: center; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; color: #ffffff; margin-bottom: 8px; text-transform: uppercase; }
+        .translation-bar-track { width: 100%; height: 6px; background: #2d2d30; overflow: hidden; position: relative; }
+        .translation-bar-fill { height: 100%; width: 0%; background: #dd0000; transition: width 0.15s ease-out; }
+
+        .section-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; gap: 20px; flex-wrap: wrap; }
+        
+        .back-btn { display: inline-flex; align-items: center; gap: 6px; background: #1a1a1c; border: 1px solid #2d2d30; color: #ffffff; padding: 8px 16px; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; text-transform: uppercase; text-decoration: none; transition: all 0.2s; }
+        .back-btn:hover { background: #dd0000; color: #000000; border-color: #dd0000; }
+
+        .lang-switch-box { display: flex; background: #1a1a1c; border: 1px solid #2d2d30; padding: 2px; flex-shrink: 0; position: relative; }
+        .lang-btn { background: transparent; border: none; color: #8a8a8f; padding: 8px 12px; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: all 0.2s ease; }
+        .lang-btn.active { background: #dd0000; color: #000000; }
+        .lang-btn:disabled { opacity: 0.5; cursor: wait; }
+        .lang-more-btn { background: #2d2d30; color: #fff; border: none; padding: 8px 12px; cursor: pointer; font-weight: bold; }
+        .lang-modal { display: none; position: absolute; top: 100%; right: 0; background: #121214; border: 1px solid #dd0000; padding: 12px; z-index: 100; width: min(320px, 88vw); max-height: 70vh; overflow-y: auto; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
+        .lang-modal .lang-btn { flex: 1 1 calc(50% - 8px); min-width: 110px; text-align: center; background: #1a1a1c; border: 1px solid #2d2d30; }
+        .lang-modal-title { width: 100%; font-size: 0.75rem; color: #dd0000; font-weight: bold; text-transform: uppercase; font-family: 'Montserrat', sans-serif; border-bottom: 1px solid #2d2d30; padding-bottom: 4px; }
+
+        .translating-pulse { opacity: 0.6; animation: pulseText 1.2s infinite ease-in-out; font-style: italic; }
+        @keyframes pulseText { 0% { opacity: 0.3; } 50% { opacity: 0.8; } 100% { opacity: 0.3; } }
+
+        .single-card { 
+            background: rgba(26, 26, 28, 0.95); border: 1px solid #2d2d30; padding: 30px;
+            display: flex; flex-direction: column; position: relative; border-left: 4px solid #dd0000;
+        }
+        .single-card h3 { font-family: 'Montserrat', sans-serif; font-size: 1.6rem; text-transform: uppercase; margin-bottom: 20px; color: #dd0000; word-break: break-word; }
+
+        .word-text { font-family: 'Times New Roman', Times, serif; font-size: 1.2rem; color: #e0e0e0; white-space: pre-wrap; line-height: 1.6; text-align: left; }
+        .post-inline-link { color: #dd0000; font-weight: bold; text-decoration: none; border-bottom: 1px dashed #dd0000; }
+        .post-inline-link:hover { color: #ff3333; border-bottom-style: solid; }
+
+        .media-card { display: flex; flex-direction: column; align-items: center; }
+        .media-title-center { text-align: center; width: 100%; margin-bottom: 20px !important; }
+        .inline-post-img { width: 100%; max-height: 450px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 15px 0; display: block; }
+
+        .custom-audio-player { display: flex; align-items: center; gap: 10px; background: #121214; border: 1px solid #dd0000; padding: 12px 16px; margin-bottom: 20px; width: 100%; }
+        .custom-audio-player audio { display: none; }
+        .custom-audio-player .play-btn, .custom-audio-player .volume-btn { background: #dd0000; border: none; color: #000000; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+        .custom-audio-player .play-btn:hover, .custom-audio-player .volume-btn:hover { background: #ff3333; }
+        .custom-audio-player .progress-bar { flex-grow: 1; height: 6px; background: #2d2d30; cursor: pointer; position: relative; }
+        .custom-audio-player .progress-fill { height: 100%; background: #dd0000; width: 0%; }
+        .custom-audio-player .time-display { font-family: 'Montserrat', sans-serif; font-size: 0.8rem; color: #a0a0a5; min-width: 90px; text-align: center; }
+
+        .custom-video-player {
+            width: 100%;
+            background: #000000;
+            border: 1px solid #dd0000;
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transform: translateZ(0);
+            will-change: transform;
+            user-select: none;
+        }
+
+        .custom-video-player:fullscreen,
+        .custom-video-player:-webkit-full-screen {
+            width: 100vw !important;
+            height: 100vh !important;
+            border: none;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .v-wrapper {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background-color: #000;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .custom-video-player:fullscreen .v-wrapper,
+        .custom-video-player:-webkit-full-screen .v-wrapper {
+            flex-grow: 1;
+            padding-top: 0;
+            height: calc(100vh - 50px);
+        }
+
+        .v-wrapper video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            cursor: pointer;
+            background: #000;
+        }
+
+        .v-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 4;
+            transition: opacity 0.25s ease;
+        }
+
+        .custom-video-player.is-playing .v-overlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .v-play-center {
+            background: #dd0000;
+            border: none;
+            color: #000000;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.15s;
+        }
+
+        .v-play-center:hover { transform: scale(1.12); background: #ff3333; }
+        .v-play-center .material-icons { font-size: 38px; }
+
+        .v-gesture-speed {
+            display: none;
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.75);
+            border: 1px solid #dd0000;
+            color: #fff;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.9rem;
+            font-weight: bold;
+            z-index: 10;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .v-gesture-seek {
+            display: none;
+            position: absolute;
+            top: 0;
+            width: 40%;
+            height: 100%;
+            background: rgba(221,0,0,0.15);
+            color: #fff;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+
+        .v-gesture-seek-left { left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
+        .v-gesture-seek-right { right: 0; border-radius: 100% 0 0 100% / 50% 0 0 50%; }
+
+        .animate-seek { animation: seekPulse 0.5s ease-out; }
+        @keyframes seekPulse {
+            0% { opacity: 0; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1); }
+            100% { opacity: 0; transform: scale(1.1); }
+        }
+
+        .v-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #121214;
+            padding: 10px 12px;
+            border-top: 1px solid #2d2d30;
+            z-index: 6;
+        }
+
+        .v-btn {
+            background: #dd0000;
+            border: none;
+            color: #000000;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.15s;
+            flex-shrink: 0;
+        }
+
+        .v-btn:hover { background: #ff3333; transform: scale(1.05); }
+        .v-btn .material-icons { font-size: 20px; }
+
+        .v-progress-bar {
+            flex-grow: 1;
+            height: 6px;
+            background: #2d2d30;
+            cursor: pointer;
+            position: relative;
+            min-width: 40px;
+        }
+
+        .v-progress-fill { height: 100%; background: #dd0000; width: 0%; transition: width 0.1s linear; }
+
+        .v-time-display {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.75rem;
+            color: #a0a0a5;
+            min-width: 80px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .v-more-menu {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            right: 0;
+            background: #1a1a1c;
+            border: 1px solid #dd0000;
+            margin-bottom: 5px;
+            z-index: 20;
+            flex-direction: column;
+            min-width: 170px;
+            box-shadow: 0px 4px 12px rgba(0,0,0,0.9);
+            animation: fadeIn 0.15s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .v-more-menu.open { display: flex; }
+
+        .v-menu-item {
+            background: transparent;
+            border: none;
+            color: #ffffff;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: left;
+            transition: background-color 0.2s;
+        }
+
+        .v-menu-item:hover { background: #dd0000; color: #000000; }
+        .v-menu-item .material-icons { font-size: 18px; }
+
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
+        .modal-card { background: #1a1a1c; border: 1px solid #dd0000; padding: 25px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        .modal-card h4 { font-family: 'Montserrat', sans-serif; color: #dd0000; font-size: 1.1rem; text-transform: uppercase; margin-bottom: 15px; }
+        .modal-buttons { display: flex; flex-direction: column; gap: 10px; }
+
+        .selector-options-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+        .selector-option-btn { background: #121214; border: 1px solid #2d2d30; color: #fff; padding: 10px; font-family: 'Montserrat', sans-serif; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        .selector-option-btn.active, .selector-option-btn:hover { background: #dd0000; border-color: #dd0000; color: #000; }
+
+        .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; border: none; cursor: pointer; text-align: center; transition: background 0.2s; }
+        .btn:hover { background-color: #ff1a1a; }
+        .btn-secondary { background: #2d2d30; color: #ffffff; }
+        .btn-secondary:hover { background: #44444c; }
+
+        footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 25px; position: relative; z-index: 10; }
+        .tg-links-container { max-width: 500px; margin: 0 auto 35px auto; display: flex; flex-direction: column; gap: 18px; }
+        .tg-link-row { display: flex; align-items: center; gap: 15px; }
+        .tg-link-row .material-icons { color: #dd0000; font-size: 24px; flex-shrink: 0; }
+        .tg-text-block { display: flex; flex-direction: column; text-align: left; }
+        .tg-label { color: #ffffff; font-size: 0.95rem; font-weight: bold; font-family: 'Montserrat', sans-serif; margin-bottom: 2px; }
+        .tg-url { color: #dd0000; text-decoration: none; font-size: 1.1rem; font-weight: 900; font-family: 'Montserrat', sans-serif; }
+        .tg-url:hover { text-decoration: underline; }
+
+        .new-disclaimer { font-family: 'Montserrat', sans-serif; font-size: 1.15rem; color: #dd0000; max-width: 750px; margin: 0 auto 25px auto; line-height: 1.6; text-align: left; text-indent: 40px; }
+        .disclaimer-title { font-size: 1.3rem; font-weight: 900; display: block; margin-bottom: 5px; }
+        .copyright-text { text-align: center; color: #444; font-size: 0.85rem; text-transform: uppercase; font-weight: bold; margin-top: 20px; display: block; }
+
+        @media (max-width: 768px) {
+            .section-header-row { flex-direction: column; align-items: flex-start; gap: 15px; }
+            .container { padding: 30px 15px; }
+            .logo h1 { font-size: 3rem; }
+            nav { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 480px) {
+            header { padding: 25px 15px 15px 15px; }
+            .logo h1 { font-size: 2.5rem; }
+            nav a { font-size: 0.8rem; padding: 12px 0; }
+            .single-card { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo-container">
+        <img class="logo-img" src="https://i.ibb.co/WvfPwwL4/2748-20260614014830.png" alt="Логотип ССБА">
+        <div class="logo"><h1>ССБА</h1></div>
+        <p class="description i18n-translatability">Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.</p>
+        <div class="quote-box i18n-translatability" id="quote-container">«Загрузка цитаты...» — Автор</div>
+    </div>
+
+    <nav>
+        <a href="index.html" class="i18n-translatability">Главная</a>
+        <a href="index.html?section=posts" class="i18n-translatability">Посты</a>
+        <a href="index.html?section=photo" class="i18n-translatability">Фото</a>
+        <a href="index.html?section=video" class="i18n-translatability">Видео</a>
+        <a href="index.html?section=music" class="i18n-translatability">Музыка</a>
+        <a href="index.html?section=books" class="i18n-translatability">Книги</a>
+    </nav>
+</header>
+
+<div class="red-bar"></div>
+
+<div class="main-content-wrapper">
+    <div class="animated-bg"><div class="bg-grid"></div></div>
+
+    <div class="container">
+        <div class="translation-progress-box" id="progress-bar-container">
+            <div class="translation-status-info">
+                <span id="progress-bar-label">Загрузка...</span>
+                <span id="progress-bar-percent">0%</span>
+            </div>
+            <div class="translation-bar-track">
+                <div class="translation-bar-fill" id="progress-bar-fill"></div>
+            </div>
+        </div>
+
+        <div class="section-header-row">
+            <a href="index.html" class="back-btn"><i class="material-icons">arrow_back</i> На главную</a>
+            
+            <div class="lang-switch-box">
+                <button class="lang-btn active" data-lang="ru" onclick="switchLanguage('ru')">RU</button>
+                <button class="lang-btn" data-lang="en" onclick="switchLanguage('en')">EN</button>
+                <button class="lang-more-btn" onclick="toggleLangModal()">+ Ещё</button>
+
+                <div class="lang-modal" id="lang-modal">
+                    <span class="lang-modal-title">Популярные</span>
+                    <button class="lang-btn" data-lang="de" onclick="switchLanguage('de')">DE</button>
+                    <button class="lang-btn" data-lang="fr" onclick="switchLanguage('fr')">FR</button>
+                    <button class="lang-btn" data-lang="es" onclick="switchLanguage('es')">ES</button>
+                    <span class="lang-modal-title">СНГ</span>
+                    <button class="lang-btn" data-lang="uk" onclick="switchLanguage('uk')">UK</button>
+                    <button class="lang-btn" data-lang="be" onclick="switchLanguage('be')">BE</button>
+                    <button class="lang-btn" data-lang="kk" onclick="switchLanguage('kk')">KK</button>
+                    <button class="lang-btn" data-lang="uz" onclick="switchLanguage('uz')">UZ</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="single-post-container">
+            <div class="single-card">
+                <p style="text-align:center; color:#888;">Загрузка публикации...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="selector-modal">
+    <div class="modal-card">
+        <h4 id="selector-modal-title">Параметр</h4>
+        <div class="selector-options-grid" id="selector-options-container"></div>
+        <div class="modal-buttons">
+            <button class="btn" onclick="closeSelectorModal(true)">Готово</button>
+            <button class="btn btn-secondary" onclick="closeSelectorModal(false)" style="margin-top: 5px;">Отмена</button>
+        </div>
+    </div>
+</div>
+
+<div class="red-bar"></div>
+
+<footer>
+    <div class="tg-links-container">
+        <div class="tg-link-row">
+            <i class="material-icons">link</i>
+            <div class="tg-text-block">
+                <span class="tg-label i18n-translatability">Канал:</span>
+                <a href="https://t.me/Stalinhead" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead</a>
+            </div>
+        </div>
+        <div class="tg-link-row">
+            <i class="material-icons">group_add</i>
+            <div class="tg-text-block">
+                <span class="tg-label i18n-translatability">Вступить:</span>
+                <a href="https://t.me/Stalinhead?direct" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead?direct</a>
+            </div>
+        </div>
+    </div>
+    <div class="new-disclaimer">
+        <span class="disclaimer-title i18n-translatability">ДИСКЛЕЙМЕР:</span>
+        <span class="disclaimer-body i18n-translatability">Материалы сайта носят историко-архивный и публицистический характер. 18+</span>
+    </div>
+    <span class="copyright-text i18n-translatability">&copy; 2026 ССБА. Все права защищены.</span>
+</footer>
+</body>
+</html>

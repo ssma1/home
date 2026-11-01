@@ -36,10 +36,11 @@
         let currentSectionId = 'about';
         let currentSortOrder = 'desc';
         let currentYearFilter = 'all';
+        let currentSearchQuery = '';
         let currentDocsCache = [];
+        let activeVideoForDownload = '';
         const sectionCache = new Map();
 
-        // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
         function escapeHTML(str) {
             if (!str) return '';
             return String(str)
@@ -64,7 +65,6 @@
             element.setAttribute('data-original', text || '');
         }
 
-        // === ПЕРЕВОД ===
         async function fetchTranslation(text, targetLang = 'en') {
             if (!text || !text.trim() || targetLang === 'ru') return text;
             const cacheKey = `${targetLang}:${text}`;
@@ -114,19 +114,61 @@
             return topImagesHtml + `<div class="word-text i18n-translatability" data-original="${escapeHTML(text || "")}">${safeText}</div>`;
         };
 
-        // === ИНИЦИАЛИЗАЦИЯ "О КАНАЛЕ" ===
+        const defaultAboutText = `ЧТО ТАКОЕ ССБА: КТО МЫ, ЗА ЧТО БОРЕМСЯ, ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО К НАМ И КАК ЭТО СДЕЛАТЬ
+
+Введение
+Товарищи, читатели и сочувствующие. За время существования нашего канала мы не раз получали вопросы: «Кто вы такие?», «Почему скинхеды-сталинисты?», «За кого вы?», «Как к вам попасть?». Сегодня мы даём развёрнутый ответ. В этой статье мы расскажем, что такое ССБА, на каких идеях мы стоим, как устроена наша организация и что нужно, чтобы стать её частью.
+
+Раздел 1. ЧТО ТАКОЕ ССБА
+1.1. Полное название и суть организации
+ССБА расшифровывается как «Скинхеды-Сталинисты Боевые Антифашисты». Это незарегистрированное идейное объединение, не являющееся юридическим лицом. Мы — люди, придерживающиеся марксистско-ленинских взглядов, чьей социальной базой является пролетариат и сочувствующие ему слои.
+
+1.2. Почему «скинхеды-сталинисты»? Самоирония и исторический контекст
+Формация ССБА берёт начало с Telegram-канала «☭Архив Antifa and R.A.S.H.☭», созданного 26 января 2025 года. 13 июня 2025 года канал был переименован в «ССБА», что стало точкой отсчёта формирования организации. Мы используем слово «Сталинисты» с самоиронией — как вызов либеральным и нацистским кругам, и как маркёр принципиальной поддержки И.В. Сталина.
+
+1.3. Почему «скинхеды»? Распределение ролей
+· Скинхеды в структуре ССБА выполняют функцию боевого крыла — уличная самооборона, антифашистское прямое действие, охрана мероприятий.
+· Идейное ядро — те, кто определяет стратегию, занимается теорией, агитацией и пропагандой, — составляют трудящиеся и сознательные коммунисты.
+
+Раздел 2. НАША ИДЕОЛОГИЯ
+2.1. Марксизм-ленинизм как основа
+ССБА базируется на марксизме-ленинизме — единственной научной теории освобождения пролетариата, разработанной К. Марксом, Ф. Энгельсом, В.И. Лениным и И.В. Сталиным.
+
+2.2. Ключевые принципы
+· Диктатура пролетариата — необходимая форма власти в переходный период.
+· Социалистическая революция — единственный путь свержения власти капитала.
+· Пролетарский интернационализм — у трудящихся нет Отечества в буржуазном смысле.
+
+Раздел 4. ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО В ССБА
+Первое. Научная теория марксизма-ленинизма.
+Второе. Уличная дисциплина и антифашистская практика.
+Третье. Организация и дисциплина на основе демократического централизма.
+
+Раздел 5. КАК ВСТУПИТЬ В ССБА
+Свяжитесь с нами напрямую через Telegram: @StalinHead.`;
+
         function initAboutText() {
-            const aboutTextP = document.getElementById("dynamic-about-text");
             getDocs(collection(db, "about")).then((querySnapshot) => {
-                let text = "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.";
+                let text = defaultAboutText;
                 querySnapshot.forEach((docSnap) => {
                     if (docSnap.id === "main_info" && docSnap.data().text) text = docSnap.data().text;
                 });
-                safelySetTextContent(aboutTextP, text);
+                renderAboutParagraphs(text);
                 if (currentLang !== 'ru') applyLanguage(currentLang);
             }).catch(() => {
-                safelySetTextContent(aboutTextP, "Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.");
+                renderAboutParagraphs(defaultAboutText);
             });
+        }
+
+        function renderAboutParagraphs(text) {
+            const aboutContainer = document.getElementById("about-container");
+            const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+            let html = "";
+            paragraphs.forEach(p => {
+                const safeP = escapeHTML(p.trim());
+                html += `<p class="i18n-translatability" data-original="${safeP}">${safeP}</p>`;
+            });
+            aboutContainer.innerHTML = html;
         }
 
         async function initDynamicQuotes() {
@@ -147,7 +189,6 @@
             } catch { safelySetTextContent(quoteContainer, "«Без революционной теории не может быть и революционного движения.» — В. И. Ленин"); }
         }
 
-        // === ПЕРЕКЛЮЧЕНИЕ ЯЗЫКОВ ===
         window.toggleLangModal = function() {
             const modal = document.getElementById('lang-modal');
             modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
@@ -174,7 +215,7 @@
         };
 
         async function applyLanguage(lang) {
-            const elements = Array.from(document.querySelectorAll('.i18n-translatability, .card h3, .word-text, #dynamic-about-text'));
+            const elements = Array.from(document.querySelectorAll('.i18n-translatability, .card h3, .word-text'));
             const container = document.getElementById('progress-bar-container');
             const label = document.getElementById('progress-bar-label');
             const percent = document.getElementById('progress-bar-percent');
@@ -214,7 +255,6 @@
             setTimeout(() => { if (currentLang !== 'ru') container.style.display = 'none'; }, 1500);
         }
 
-        // === АУДИО ПЛЕЕР ===
         window.initCustomAudioPlayer = function(container) {
             const player = container.querySelector('.custom-audio-player');
             if (!player) return;
@@ -237,19 +277,33 @@
                 timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
             });
             audio.addEventListener('loadedmetadata', () => { timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`; });
-            progressBar.addEventListener('click', (e) => {
+
+            let isDragging = false;
+            function scrub(e) {
                 const rect = progressBar.getBoundingClientRect();
-                audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
-            });
-            volumeBtn.addEventListener('click', () => { audio.muted = !audio.muted; volumeIcon.textContent = audio.muted ? 'volume_off' : 'volume_up'; });
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                if (audio.duration) {
+                    audio.currentTime = pos * audio.duration;
+                    progressFill.style.width = `${pos * 100}%`;
+                }
+            }
+
+            progressBar.addEventListener('mousedown', (e) => { isDragging = true; scrub(e); });
+            window.addEventListener('mousemove', (e) => { if (isDragging) scrub(e); });
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            progressBar.addEventListener('touchstart', (e) => { isDragging = true; scrub(e); }, {passive: true});
+            window.addEventListener('touchmove', (e) => { if (isDragging) scrub(e); }, {passive: true});
+            window.addEventListener('touchend', () => { isDragging = false; });
         };
 
-        // === СТАРЫЙ ВИДЕО ПЛЕЕР (С ПОВОРОТОМ ЭКРАНА И УДОБНЫМ FULLSCREEN) ===
         window.initCustomVideoPlayer = function(container) {
             const player = container.querySelector('.custom-video-player');
             if (!player) return;
 
             const video = player.querySelector('video');
+            const wrapper = player.querySelector('.v-wrapper');
             const overlay = player.querySelector('.v-overlay');
             const playCenterBtn = player.querySelector('.v-play-center');
             const playBtn = player.querySelector('.v-play-btn');
@@ -262,11 +316,19 @@
             const moreBtn = player.querySelector('.v-more-btn');
             const moreMenu = player.querySelector('.v-more-menu');
             const menuDownloadBtn = player.querySelector('.v-menu-download');
+            const menuShareBtn = player.querySelector('.v-menu-share');
             const menuMuteBtn = player.querySelector('.v-menu-mute');
+            const menuSpeedBtn = player.querySelector('.v-menu-speed');
+            const menuQualityBtn = player.querySelector('.v-menu-quality');
             const fsBtn = player.querySelector('.v-fs-btn');
 
-            // Флаг ленивой загрузки
+            const speedOverlay = player.querySelector('.v-gesture-speed');
+            const seekLeftOverlay = player.querySelector('.v-gesture-seek-left');
+            const seekRightOverlay = player.querySelector('.v-gesture-seek-right');
+
             let isLoaded = false;
+
+            wrapper.addEventListener('contextmenu', (e) => e.preventDefault());
 
             function formatTime(seconds) {
                 if (isNaN(seconds) || !isFinite(seconds)) return "00:00";
@@ -275,29 +337,28 @@
                 return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
             }
 
-            // === ЛЕНИВАЯ ЗАГРУЗКА ===
             function loadVideo() {
                 if (isLoaded) return;
                 const src = video.getAttribute('data-src');
                 if (src && !video.src) {
                     video.src = src;
                     video.load();
+                    video.currentTime = 0.1;
                 }
             }
 
             video.addEventListener('loadedmetadata', () => {
                 isLoaded = true;
+                video.currentTime = 0.1;
                 if (timeDisplay) timeDisplay.textContent = `00:00 / ${formatTime(video.duration)}`;
             });
 
-            // Автозапуск после загрузки
             video.addEventListener('loadeddata', () => {
                 if (video.autoplay) {
                     video.play().catch(e => {});
                 }
             });
 
-            // === УПРАВЛЕНИЕ ===
             function togglePlay() {
                 if (!isLoaded) {
                     loadVideo();
@@ -321,7 +382,50 @@
             if (playCenterBtn) playCenterBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
             if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
             if (overlay) overlay.addEventListener('click', togglePlay);
-            if (video) video.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+
+            let lastTapTime = 0;
+            let longPressTimer = null;
+
+            wrapper.addEventListener('touchstart', (e) => {
+                loadVideo();
+                const now = Date.now();
+                const tapGap = now - lastTapTime;
+                const rect = wrapper.getBoundingClientRect();
+                const touchX = e.touches[0].clientX - rect.left;
+
+                if (tapGap < 300 && tapGap > 0) {
+                    clearTimeout(longPressTimer);
+                    if (touchX > rect.width / 2) {
+                        video.currentTime = Math.min(video.duration || 0, video.currentTime + 5);
+                        triggerGestureAnimation(seekRightOverlay);
+                    } else {
+                        video.currentTime = Math.max(0, video.currentTime - 5);
+                        triggerGestureAnimation(seekLeftOverlay);
+                    }
+                    e.preventDefault();
+                } else {
+                    longPressTimer = setTimeout(() => {
+                        video.playbackRate = 2.0;
+                        if (speedOverlay) speedOverlay.style.display = 'flex';
+                    }, 400);
+                }
+                lastTapTime = now;
+            }, {passive: false});
+
+            wrapper.addEventListener('touchend', () => {
+                clearTimeout(longPressTimer);
+                video.playbackRate = 1.0;
+                if (speedOverlay) speedOverlay.style.display = 'none';
+            });
+
+            function triggerGestureAnimation(element) {
+                if (!element) return;
+                element.style.display = 'flex';
+                element.classList.remove('animate-seek');
+                void element.offsetWidth;
+                element.classList.add('animate-seek');
+                setTimeout(() => { element.style.display = 'none'; }, 600);
+            }
 
             video.addEventListener('play', () => {
                 if (playIcon) playIcon.textContent = 'pause';
@@ -343,14 +447,25 @@
                 }
             });
 
+            let isVideoDragging = false;
+            function scrubVideo(e) {
+                const rect = progressBar.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                if (video.duration) {
+                    video.currentTime = pos * video.duration;
+                    progressFill.style.width = `${pos * 100}%`;
+                }
+            }
+
             if (progressBar) {
-                progressBar.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (!isLoaded) return;
-                    const rect = progressBar.getBoundingClientRect();
-                    const pos = (e.clientX - rect.left) / rect.width;
-                    if (video.duration) video.currentTime = pos * video.duration;
-                });
+                progressBar.addEventListener('mousedown', (e) => { isVideoDragging = true; scrubVideo(e); });
+                window.addEventListener('mousemove', (e) => { if (isVideoDragging) scrubVideo(e); });
+                window.addEventListener('mouseup', () => { isVideoDragging = false; });
+
+                progressBar.addEventListener('touchstart', (e) => { isVideoDragging = true; scrubVideo(e); }, {passive: true});
+                window.addEventListener('touchmove', (e) => { if (isVideoDragging) scrubVideo(e); }, {passive: true});
+                window.addEventListener('touchend', () => { isVideoDragging = false; });
             }
 
             function toggleMute() {
@@ -368,6 +483,25 @@
                 });
             }
 
+            if (menuSpeedBtn) {
+                menuSpeedBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    openSelectorModal('Скорость воспроизведения', ['0.5x', '1x', '1.25x', '1.5x', '2x'], `${video.playbackRate}x`, (val) => {
+                        const rate = parseFloat(val);
+                        video.playbackRate = rate;
+                    });
+                });
+            }
+
+            if (menuQualityBtn) {
+                menuQualityBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    openSelectorModal('Качество видео', ['Авто', '720p', '480p', '360p'], 'Авто', (val) => {});
+                });
+            }
+
             if (moreBtn && moreMenu) {
                 moreBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -378,7 +512,6 @@
                 });
             }
 
-            // === ПОЛНОЭКРАННЫЙ РЕЖИМ С ПОВОРОТОМ (СТАРЫЙ РАБОЧИЙ) ===
             async function toggleFullscreen() {
                 try {
                     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -391,7 +524,6 @@
                             return;
                         }
 
-                        // Автоповорот на телефоне
                         if (screen.orientation && screen.orientation.lock) {
                             screen.orientation.lock('landscape').catch(() => {});
                         }
@@ -423,26 +555,61 @@
                 menuDownloadBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     if (moreMenu) moreMenu.classList.remove('open');
-                    // Загружаем перед скачиванием
                     if (!isLoaded) loadVideo();
-                    window.openDownloadModal(video.currentSrc || video.src || video.getAttribute('data-src'));
+                    activeVideoForDownload = video.currentSrc || video.src || video.getAttribute('data-src');
+                    window.downloadVideoWatermark();
                 });
             }
 
-            // Загрузка при наведении
+            if (menuShareBtn) {
+                menuShareBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (moreMenu) moreMenu.classList.remove('open');
+                    const card = container.closest('.card');
+                    const postId = card ? card.getAttribute('data-id') : '';
+                    const titleEl = card ? card.querySelector('h3') : null;
+                    const title = titleEl ? titleEl.textContent : 'Видео ССБА';
+                    const shareUrl = `${window.location.origin}${window.location.pathname.replace(/index.*\.html$/, '')}page.html?id=${postId}&type=${currentSectionId}`;
+
+                    if (navigator.share) {
+                        navigator.share({ title: title, text: title, url: shareUrl }).catch(err => console.log('Share canceled', err));
+                    } else {
+                        navigator.clipboard.writeText(shareUrl).then(() => { alert('Ссылка на пост скопирована!'); }).catch(() => { prompt('Скопируйте ссылку:', shareUrl); });
+                    }
+                });
+            }
+
             player.addEventListener('mouseenter', loadVideo, { once: true });
             player.addEventListener('touchstart', loadVideo, { once: true });
         };
 
-        // === МОДАЛКА СКАЧИВАНИЯ ===
-        let activeDownloadUrl = "";
-        window.openDownloadModal = function(url) {
-            activeDownloadUrl = url;
-            document.getElementById('download-modal').style.display = 'flex';
+        let selectorCallback = null;
+        window.openSelectorModal = function(title, options, currentVal, callback) {
+            document.getElementById('selector-modal-title').textContent = title;
+            selectorCallback = callback;
+            const container = document.getElementById('selector-options-container');
+            let html = '';
+            options.forEach(opt => {
+                const isActive = opt === currentVal ? 'active' : '';
+                html += `<button class="selector-option-btn ${isActive}" type="button" onclick="selectOption('${opt}')">${opt}</button>`;
+            });
+            container.innerHTML = html;
+            document.getElementById('selector-modal').style.display = 'flex';
         };
-        window.closeDownloadModal = function() {
-            document.getElementById('download-modal').style.display = 'none';
-            activeDownloadUrl = "";
+
+        window.selectOption = function(val) {
+            document.querySelectorAll('.selector-option-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === val);
+            });
+        };
+
+        window.closeSelectorModal = function(apply = false) {
+            if (apply && selectorCallback) {
+                const activeBtn = document.querySelector('.selector-option-btn.active');
+                if (activeBtn) selectorCallback(activeBtn.textContent);
+            }
+            document.getElementById('selector-modal').style.display = 'none';
+            selectorCallback = null;
         };
 
         function showProgressUI(title) {
@@ -464,51 +631,10 @@
             setTimeout(() => { document.getElementById('progress-bar-container').style.display = 'none'; }, 1000);
         }
 
-        window.downloadVideoClean = async function() {
-            if (!activeDownloadUrl) return;
-            const src = activeDownloadUrl;
-            closeDownloadModal();
-            const update = showProgressUI("Скачивание видео...");
-            try {
-                const response = await fetch(src);
-                if (!response.ok) throw new Error("Network error");
-                const total = parseInt(response.headers.get('content-length'), 10) || 0;
-                const reader = response.body.getReader();
-                let received = 0, chunks = [];
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    chunks.push(value);
-                    received += value.length;
-                    if (total > 0) update((received / total) * 100);
-                    else update(50);
-                }
-                update(100);
-                const blob = new Blob(chunks, { type: 'video/mp4' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'SSBA_video.mp4';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            } catch (err) {
-                const a = document.createElement('a');
-                a.href = src;
-                a.download = 'SSBA_video.mp4';
-                a.target = '_blank';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            } finally { hideProgressUI(); }
-        };
-
         window.downloadVideoWatermark = async function() {
-            if (!activeDownloadUrl) return;
-            const src = activeDownloadUrl;
-            closeDownloadModal();
-            const update = showProgressUI("Обработка водяного знака...");
+            if (!activeVideoForDownload) return;
+            const src = activeVideoForDownload;
+            const update = showProgressUI("Скачивание видео...");
             try {
                 const tempVideo = document.createElement('video');
                 tempVideo.crossOrigin = "anonymous";
@@ -536,7 +662,7 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = 'SSBA_video_watermark.webm';
+                    a.download = 'SSBA_video.webm';
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -565,7 +691,7 @@
             } catch (err) {
                 const a = document.createElement('a');
                 a.href = src;
-                a.download = 'video.mp4';
+                a.download = 'SSBA_video.mp4';
                 a.target = '_blank';
                 document.body.appendChild(a);
                 a.click();
@@ -574,7 +700,6 @@
             }
         };
 
-        // === ФИЛЬТРЫ И РЕНДЕРИНГ ===
         function extractYearsFromItem(item) {
             const combined = `${item.title || ''} ${item.text || ''}`;
             const matches = combined.match(/\b(18|19|20)\d{2}\b/g);
@@ -597,6 +722,11 @@
             }
         }
 
+        window.handleSearchInput = function(value) {
+            currentSearchQuery = value.toLowerCase().trim();
+            renderFilteredCards();
+        };
+
         window.handleSortChange = function(value) {
             currentSortOrder = value;
             renderFilteredCards();
@@ -617,8 +747,13 @@
             }
 
             let filtered = currentDocsCache.filter(item => {
-                if (currentYearFilter === 'all') return true;
-                return extractYearsFromItem(item).includes(currentYearFilter);
+                if (currentYearFilter !== 'all' && !extractYearsFromItem(item).includes(currentYearFilter)) return false;
+                if (currentSearchQuery !== '') {
+                    const t = (item.title || '').toLowerCase();
+                    const txt = (item.text || '').toLowerCase();
+                    return t.includes(currentSearchQuery) || txt.includes(currentSearchQuery);
+                }
+                return true;
             });
 
             filtered.sort((a, b) => {
@@ -628,7 +763,7 @@
             });
 
             if (filtered.length === 0) {
-                container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Публикации за ${currentYearFilter} год не найдены.</p></div>`;
+                container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Публикации не найдены.</p></div>`;
                 return;
             }
 
@@ -649,19 +784,21 @@
                     parsedContent = parseContent(data.text, null, null);
                 }
 
-                // === ВИДЕО КАРТОЧКА (СТАРЫЙ ПЛЕЕР) ===
                 if (sectionId === "video") {
                     html += `
                         <div class="card media-card media-card-stable" data-id="${id}">
-                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
+                            <h3 class="media-title-center i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
                             <div class="scroll-content" style="width: 100%;">
                                 ${safeMediaUrl ? `
                                     <div class="custom-video-player">
                                         <div class="v-wrapper">
-                                            <video preload="none" playsinline webkit-playsinline data-src="${safeMediaUrl}"></video>
+                                            <video preload="metadata" playsinline webkit-playsinline data-src="${safeMediaUrl}"></video>
                                             <div class="v-overlay">
                                                 <button class="v-play-center" type="button"><i class="material-icons">play_arrow</i></button>
                                             </div>
+                                            <div class="v-gesture-speed"><i class="material-icons">fast_forward</i> 2X</div>
+                                            <div class="v-gesture-seek v-gesture-seek-left"><i class="material-icons">fast_rewind</i> <span>-5 сек</span></div>
+                                            <div class="v-gesture-seek v-gesture-seek-right"><i class="material-icons">fast_forward</i> <span>+5 сек</span></div>
                                         </div>
                                         <div class="v-controls">
                                             <button class="v-btn v-play-btn" type="button"><i class="material-icons">play_arrow</i></button>
@@ -671,7 +808,10 @@
                                                 <button class="v-btn v-more-btn" type="button" title="Ещё"><i class="material-icons">more_vert</i></button>
                                                 <div class="v-more-menu">
                                                     <button class="v-menu-item v-menu-mute" type="button"><i class="material-icons">volume_off</i> Убрать звук</button>
+                                                    <button class="v-menu-item v-menu-speed" type="button"><i class="material-icons">speed</i> Скорость</button>
+                                                    <button class="v-menu-item v-menu-quality" type="button"><i class="material-icons">high_quality</i> Качество</button>
                                                     <button class="v-menu-item v-menu-download" type="button"><i class="material-icons">file_download</i> Скачать</button>
+                                                    <button class="v-menu-item v-menu-share" type="button"><i class="material-icons">share</i> Поделиться</button>
                                                 </div>
                                             </div>
                                             <button class="v-btn v-fs-btn" type="button" title="На весь экран"><i class="material-icons">fullscreen</i></button>
@@ -681,12 +821,10 @@
                                 ${parsedContent}
                             </div>
                         </div>`;
-                } 
-                // === АУДИО КАРТОЧКА ===
-                else if (sectionId === "music") {
+                } else if (sectionId === "music") {
                     html += `
                         <div class="card media-card media-card-stable" data-id="${id}">
-                            <h3 class="media-title-center" data-original="${safeTitle}">${safeTitle}</h3>
+                            <h3 class="media-title-center i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
                             <div class="scroll-content" style="width: 100%;">
                                 ${safeMediaUrl ? `
                                     <div class="custom-audio-player">
@@ -700,12 +838,10 @@
                                 ${parsedContent}
                             </div>
                         </div>`;
-                }
-                // === ОСТАЛЬНЫЕ КАРТОЧКИ ===
-                else {
+                } else {
                     html += `
                         <div class="card media-card-stable" data-id="${id}">
-                            <h3 data-original="${safeTitle}">${safeTitle}</h3>
+                            <h3 class="i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
                             <div class="scroll-content">${parsedContent}</div>
                             ${sectionId === "books" && safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn i18n-translatability" style="margin-top:15px;">Скачать / Читать</a>` : ''}
                         </div>`;
@@ -714,7 +850,6 @@
 
             container.innerHTML = html;
 
-            // Инициализация плееров
             if (sectionId === "music") {
                 container.querySelectorAll('.card').forEach(card => window.initCustomAudioPlayer(card));
             } else if (sectionId === "video") {
@@ -724,7 +859,6 @@
             if (currentLang !== 'ru') applyLanguage(currentLang);
         }
 
-        // === ЗАГРУЗКА РАЗДЕЛОВ ===
         window.showSection = async function(sectionId) {
             currentSectionId = sectionId;
 
@@ -739,7 +873,9 @@
             currentDocsCache = [];
 
             if (sectionId === 'about') {
-                document.getElementById('section-page-title').innerText = "О канале";
+                const titleEl = document.getElementById('section-page-title');
+                titleEl.innerText = "О канале";
+                titleEl.setAttribute('data-original', "О канале");
                 document.getElementById('about-container').style.display = 'block';
                 filterBar.style.display = 'none';
                 if (currentLang !== 'ru') applyLanguage(currentLang);
@@ -800,7 +936,6 @@
             try { await updateDoc(doc(db, collectionName, docId), { views: increment(1) }); } catch(e) {}
         };
 
-        // === DOM CONTENT LOADED ===
         window.addEventListener('DOMContentLoaded', () => {
             initAboutText();
             initDynamicQuotes();
@@ -809,11 +944,9 @@
     </script>
 
     <style>
-        /* ГЛОБАЛЬНЫЙ СБРОС */
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent !important; outline: none; }
         body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; overflow-x: hidden; }
         
-        /* ХЕДЕР */
         header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; position: relative; z-index: 10; }
         .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 500px; margin: 0 auto; }
         .logo-img { max-width: 160px; height: auto; display: block; margin-bottom: 15px; }
@@ -821,7 +954,6 @@
         .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; line-height: 1.5; text-align: center; margin-bottom: 35px; padding: 0 10px; }
         .quote-box { font-size: 0.95rem; color: #8a8a8f; margin-bottom: 40px; font-style: italic; padding: 0 15px; min-height: 40px; }
 
-        /* НАВИГАЦИЯ */
         nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; width: 100%; max-width: 750px; margin: 0 auto 20px auto; }
         nav a { color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px; padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); cursor: pointer; }
         nav a:hover, nav a.active { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
@@ -835,7 +967,6 @@
 
         .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; min-height: 500px; }
 
-        /* ПРОГРЕСС-БАР */
         .translation-progress-box { display: none; background: rgba(26, 26, 28, 0.95); border: 1px solid #dd0000; padding: 12px 18px; margin-bottom: 25px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5); }
         .translation-status-info { display: flex; justify-content: space-between; align-items: center; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; color: #ffffff; margin-bottom: 8px; text-transform: uppercase; }
         .translation-bar-track { width: 100%; height: 6px; background: #2d2d30; overflow: hidden; position: relative; }
@@ -844,14 +975,16 @@
         .section-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 20px; flex-wrap: wrap; }
         .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; letter-spacing: 1px; margin-bottom: 0; line-height: 1.2; word-break: break-word; }
 
-        /* ФИЛЬТРЫ */
+        /* ИСПРАВЛЕННЫЙ КОМПАКТНЫЙ ПОИСК */
         .filter-controls-bar { display: none; flex-wrap: wrap; align-items: center; gap: 15px; background: #1a1a1c; border: 1px solid #2d2d30; padding: 12px 18px; margin-bottom: 30px; }
+        .search-box { display: flex; align-items: center; background: #121214; border: 1px solid #dd0000; padding: 0 10px; height: 35px; width: 100%; max-width: 260px; }
+        .search-box .material-icons { color: #dd0000; font-size: 18px; margin-right: 6px; flex-shrink: 0; }
+        .search-input { background: transparent; border: none; color: #fff; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; width: 100%; height: 100%; outline: none; }
         .filter-group { display: flex; align-items: center; gap: 8px; }
         .filter-label { font-family: 'Montserrat', sans-serif; font-size: 0.8rem; font-weight: bold; color: #8a8a8f; text-transform: uppercase; }
-        .filter-select { background: #121214; color: #ffffff; border: 1px solid #dd0000; padding: 8px 12px; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; outline: none; cursor: pointer; }
+        .filter-select { background: #121214; color: #ffffff; border: 1px solid #dd0000; padding: 8px 12px; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; outline: none; cursor: pointer; height: 35px; }
         .filter-select option { background: #121214; color: #ffffff; }
 
-        /* ПЕРЕКЛЮЧАТЕЛЬ ЯЗЫКОВ */
         .lang-switch-box { display: flex; background: #1a1a1c; border: 1px solid #2d2d30; padding: 2px; flex-shrink: 0; position: relative; }
         .lang-btn { background: transparent; border: none; color: #8a8a8f; padding: 8px 12px; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: all 0.2s ease; }
         .lang-btn.active { background: #dd0000; color: #000000; }
@@ -864,7 +997,6 @@
         .translating-pulse { opacity: 0.6; animation: pulseText 1.2s infinite ease-in-out; font-style: italic; }
         @keyframes pulseText { 0% { opacity: 0.3; } 50% { opacity: 0.8; } 100% { opacity: 0.3; } }
 
-        /* СЕТКА КАРТОЧЕК */
         .grid-display { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; align-items: start; }
 
         .media-card-stable { 
@@ -887,13 +1019,12 @@
         .post-inline-link:hover { color: #ff3333; border-bottom-style: solid; }
 
         .about-box { background: rgba(21, 21, 23, 0.95); border: 1px solid #2d2d30; padding: 35px; border-left: 4px solid #dd0000; }
-        .about-box p { font-family: 'Times New Roman', Times, serif; font-size: 1.25rem; color: #bbb; margin-bottom: 15px; line-height: 1.7; text-align: left; white-space: pre-wrap; }
+        .about-box p { font-family: 'Times New Roman', Times, serif; font-size: 1.25rem; color: #bbb; margin-bottom: 20px; line-height: 1.7; text-align: left; white-space: pre-wrap; }
 
         .media-card { display: flex; flex-direction: column; align-items: center; }
         .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
         .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 12px 0; display: block; }
 
-        /* === АУДИО ПЛЕЕР === */
         .custom-audio-player { display: flex; align-items: center; gap: 10px; background: #121214; border: 1px solid #dd0000; padding: 10px 14px; margin-bottom: 15px; width: 100%; }
         .custom-audio-player audio { display: none; }
         .custom-audio-player .play-btn, .custom-audio-player .volume-btn { background: #dd0000; border: none; color: #000000; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
@@ -902,7 +1033,6 @@
         .custom-audio-player .progress-fill { height: 100%; background: #dd0000; width: 0%; }
         .custom-audio-player .time-display { font-family: 'Montserrat', sans-serif; font-size: 0.75rem; color: #a0a0a5; min-width: 85px; text-align: center; }
 
-        /* === СТАРЫЙ ВИДЕО ПЛЕЕР (С ПОВОРОТОМ) === */
         .custom-video-player {
             width: 100%;
             background: #000000;
@@ -913,6 +1043,7 @@
             position: relative;
             transform: translateZ(0);
             will-change: transform;
+            user-select: none;
         }
 
         .custom-video-player:fullscreen,
@@ -951,6 +1082,7 @@
             object-fit: contain;
             display: block;
             cursor: pointer;
+            background: #000;
         }
 
         .v-overlay {
@@ -986,13 +1118,53 @@
             transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.15s;
         }
 
-        .v-play-center:hover {
-            transform: scale(1.12);
-            background: #ff3333;
+        .v-play-center:hover { transform: scale(1.12); background: #ff3333; }
+        .v-play-center .material-icons { font-size: 34px; }
+
+        .v-gesture-speed {
+            display: none;
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.75);
+            border: 1px solid #dd0000;
+            color: #fff;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.9rem;
+            font-weight: bold;
+            z-index: 10;
+            align-items: center;
+            gap: 6px;
         }
 
-        .v-play-center .material-icons {
-            font-size: 34px;
+        .v-gesture-seek {
+            display: none;
+            position: absolute;
+            top: 0;
+            width: 40%;
+            height: 100%;
+            background: rgba(221,0,0,0.15);
+            color: #fff;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+
+        .v-gesture-seek-left { left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
+        .v-gesture-seek-right { right: 0; border-radius: 100% 0 0 100% / 50% 0 0 50%; }
+
+        .animate-seek { animation: seekPulse 0.5s ease-out; }
+        @keyframes seekPulse {
+            0% { opacity: 0; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1); }
+            100% { opacity: 0; transform: scale(1.1); }
         }
 
         .v-controls {
@@ -1026,18 +1198,9 @@
             flex-shrink: 0;
         }
 
-        .v-btn:hover {
-            background: #ff3333;
-            transform: scale(1.05);
-        }
-
-        .v-btn:active {
-            transform: scale(0.95);
-        }
-
-        .v-btn .material-icons {
-            font-size: 20px;
-        }
+        .v-btn:hover { background: #ff3333; transform: scale(1.05); }
+        .v-btn:active { transform: scale(0.95); }
+        .v-btn .material-icons { font-size: 20px; }
 
         .v-progress-bar {
             flex-grow: 1;
@@ -1048,12 +1211,7 @@
             min-width: 40px;
         }
 
-        .v-progress-fill {
-            height: 100%;
-            background: #dd0000;
-            width: 0%;
-            transition: width 0.1s linear;
-        }
+        .v-progress-fill { height: 100%; background: #dd0000; width: 0%; transition: width 0.1s linear; }
 
         .v-time-display {
             font-family: 'Montserrat', sans-serif;
@@ -1084,9 +1242,7 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .v-more-menu.open {
-            display: flex;
-        }
+        .v-more-menu.open { display: flex; }
 
         .v-menu-item {
             background: transparent;
@@ -1104,28 +1260,24 @@
             transition: background-color 0.2s;
         }
 
-        .v-menu-item:hover {
-            background: #dd0000;
-            color: #000000;
-        }
+        .v-menu-item:hover { background: #dd0000; color: #000000; }
+        .v-menu-item .material-icons { font-size: 18px; }
 
-        .v-menu-item .material-icons {
-            font-size: 18px;
-        }
-
-        /* МОДАЛКА СКАЧИВАНИЯ */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
-        .modal-card { background: #1a1a1c; border: 1px solid #dd0000; padding: 25px; max-width: 420px; width: 100%; text-align: center; }
+        .modal-card { background: #1a1a1c; border: 1px solid #dd0000; padding: 25px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
         .modal-card h4 { font-family: 'Montserrat', sans-serif; color: #dd0000; font-size: 1.1rem; text-transform: uppercase; margin-bottom: 15px; }
         .modal-card p { font-size: 0.9rem; color: #a0a0a5; margin-bottom: 20px; }
         .modal-buttons { display: flex; flex-direction: column; gap: 10px; }
+
+        .selector-options-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+        .selector-option-btn { background: #121214; border: 1px solid #2d2d30; color: #fff; padding: 10px; font-family: 'Montserrat', sans-serif; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        .selector-option-btn.active, .selector-option-btn:hover { background: #dd0000; border-color: #dd0000; color: #000; }
 
         .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; border: none; cursor: pointer; text-align: center; transition: background 0.2s; }
         .btn:hover { background-color: #ff1a1a; }
         .btn-secondary { background: #2d2d30; color: #ffffff; }
         .btn-secondary:hover { background: #44444c; }
 
-        /* ФУТЕР */
         footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 25px; position: relative; z-index: 10; }
         .tg-links-container { max-width: 500px; margin: 0 auto 35px auto; display: flex; flex-direction: column; gap: 18px; }
         .tg-link-row { display: flex; align-items: center; gap: 15px; }
@@ -1143,6 +1295,7 @@
             .section-header-row { flex-direction: column; align-items: flex-start; gap: 15px; }
             .section-title { font-size: 1.6rem; }
             .filter-controls-bar { flex-direction: column; align-items: stretch; }
+            .search-box { max-width: 100%; }
             .filter-group { flex-direction: column; align-items: flex-start; }
             .filter-select { width: 100%; }
             .lang-switch-box { align-self: flex-start; }
@@ -1221,6 +1374,10 @@
         </div>
 
         <div class="filter-controls-bar" id="filter-controls-bar">
+            <div class="search-box">
+                <i class="material-icons">search</i>
+                <input type="text" class="search-input" placeholder="Поиск..." oninput="handleSearchInput(this.value)">
+            </div>
             <div class="filter-group">
                 <span class="filter-label i18n-translatability">Сортировка:</span>
                 <select class="filter-select" id="sort-order-select" onchange="handleSortChange(this.value)">
@@ -1237,22 +1394,20 @@
         </div>
 
         <div id="about-container" class="about-box">
-            <p id="dynamic-about-text" class="i18n-translatability">Загрузка информации о канале...</p>
+            <p class="i18n-translatability">Загрузка информации о канале...</p>
         </div>
 
         <div id="dynamic-content-container" class="grid-display" style="display: none;"></div>
     </div>
 </div>
 
-<!-- МОДАЛКА СКАЧИВАНИЯ -->
-<div class="modal-overlay" id="download-modal">
+<div class="modal-overlay" id="selector-modal">
     <div class="modal-card">
-        <h4>Скачивание видео</h4>
-        <p>Выберите вариант сохранения файла:</p>
+        <h4 id="selector-modal-title">Параметр</h4>
+        <div class="selector-options-grid" id="selector-options-container"></div>
         <div class="modal-buttons">
-            <button class="btn" onclick="downloadVideoClean()">Без водяного знака</button>
-            <button class="btn btn-secondary" onclick="downloadVideoWatermark()">С водяным знаком</button>
-            <button class="btn btn-secondary" onclick="closeDownloadModal()" style="margin-top: 10px;">Отмена</button>
+            <button class="btn" onclick="closeSelectorModal(true)">Готово</button>
+            <button class="btn btn-secondary" onclick="closeSelectorModal(false)" style="margin-top: 5px;">Отмена</button>
         </div>
     </div>
 </div>
