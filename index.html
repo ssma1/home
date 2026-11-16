@@ -101,7 +101,6 @@
             profileText.textContent = user ? (user.displayName ? user.displayName.split(' ')[0] : 'Профиль') : 'Войти';
         });
 
-        // --- Закрытие меню плеера при клике вне него ---
         document.addEventListener('click', (e) => {
             document.querySelectorAll('.v-more-menu.open').forEach(menu => {
                 if (!menu.contains(e.target) && !menu.previousElementSibling.contains(e.target)) {
@@ -212,7 +211,6 @@
             return `${minutes} мин`;
         }
 
-        // --- Навигация с анимацией ---
         window.switchTab = function(tabId) {
             if (currentPostId) {
                 closePostPage();
@@ -239,7 +237,6 @@
             closeSidebar();
         };
 
-        // --- Search & Filter ---
         window.applySearchAndFilter = function(sectionId = currentSection) {
             const input = document.getElementById(`search-input-${sectionId}`) || document.getElementById(`search-input-${currentSection}`);
             if (input) searchQuery = input.value.toLowerCase().trim();
@@ -282,11 +279,8 @@
             closeFilterModal();
         };
 
-        // --- Post Page ---
         window.openPostPage = async function(collectionName, docId) {
-            // Останавливаем все запущенные медиа при переходе внутрь поста
             document.querySelectorAll('video, audio').forEach(m => m.pause());
-
             currentPostId = docId;
             
             const cleanUrl = `${window.location.origin}/${collectionName}/${docId}`;
@@ -321,7 +315,6 @@
             currentPostId = null;
         };
 
-        // Единая функция создания видеоплеера (с жестами, как в index (7).html)
         function createVideoPlayerHTML(mediaUrl, docId = '', title = '') {
             return `
                 <div class="custom-video-player" data-post-id="${escapeHTML(docId)}" data-post-title="${escapeHTML(title)}">
@@ -408,6 +401,7 @@
 
             updateMetaTags(safeTitle, data.text || '', safeMediaUrl);
 
+            // ИСПРАВЛЕНО: mediaBlock теперь идет НАВЕРХУ (сразу после мета-информации, перед текстом)
             postPage.innerHTML = `
                 <div class="post-page-container">
                     <button class="back-btn" onclick="closePostPage()">
@@ -424,8 +418,8 @@
                         </div>
                         
                         <div class="post-page-content">
-                            ${parsedContent}
                             ${mediaBlock}
+                            ${parsedContent}
                             ${attachmentsHtml}
                             ${safeFileUrl ? `<a href="${safeFileUrl}" target="_blank" class="btn-book" style="margin-top:20px; width:auto; display:inline-flex;">Скачать файл</a>` : ''}
                         </div>
@@ -471,7 +465,6 @@
             document.getElementById('twitter-image').content = finalImage;
         }
 
-        // --- Поделиться ---
         window.sharePost = function(title, cleanUrl) {
             const finalUrl = cleanUrl || window.location.href;
             if (navigator.share) {
@@ -483,7 +476,6 @@
             }
         };
 
-        // --- Toast-уведомление ---
         function showToast(message) {
             let toast = document.getElementById('toast');
             if (!toast) {
@@ -497,7 +489,6 @@
             setTimeout(() => toast.classList.remove('show'), 2000);
         }
 
-        // --- Sidebar ---
         window.toggleSidebar = function() {
             document.getElementById('sidebar').classList.toggle('open');
             document.getElementById('sidebar-overlay').classList.toggle('active');
@@ -507,7 +498,6 @@
             document.getElementById('sidebar-overlay').classList.remove('active');
         };
 
-        // --- Language ---
         window.toggleLangModal = function() {
             const modal = document.getElementById('lang-modal');
             modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
@@ -560,7 +550,6 @@
             setTimeout(() => { if (currentLang !== 'ru') container.style.display = 'none'; }, 1500);
         }
 
-        // --- Voting ---
         window.handleVote = async function(postId, voteType, sectionId, context = 'card') {
             let card = null;
             let plusBtn = null, minusBtn = null, ratingDisplay = null;
@@ -633,12 +622,10 @@
             try { await updateDoc(doc(db, sectionId, postId), { rating: increment(delta) }); } catch (err) { console.warn(err); }
         };
 
-        // --- Video Player (по образцу index (7).html + полная изоляция от кликов по карточке) ---
         window.initCustomVideoPlayer = function(container) {
             const player = container.querySelector('.custom-video-player');
             if (!player) return;
 
-            // Блокируем всплытие любых кликов/тапов из плеера наружу (в карточку поста)
             ['click', 'dblclick'].forEach(evt => {
                 player.addEventListener(evt, (e) => e.stopPropagation());
             });
@@ -922,7 +909,6 @@
             player.addEventListener('touchstart', loadVideo, { once: true });
         };
 
-        // --- Audio Player (с полной изоляцией кликов и тапов от карточки поста) ---
         window.initCustomAudioPlayer = function(container) {
             const player = container.querySelector('.custom-audio-player');
             if (!player) return;
@@ -1067,7 +1053,6 @@
             }
         };
 
-        // --- Data Loading ---
         async function initAboutText() {
             const aboutContainer = document.getElementById("about-container");
             try {
@@ -1188,6 +1173,7 @@
                     ? `<div class="attachments-list">${data.attachments.map(a => `<a href="${a.url}" target="_blank" class="attachment-link" onclick="event.stopPropagation()"><i class="material-icons-round">attach_file</i> ${escapeHTML(a.name || 'Файл')}</a>`).join('')}</div>`
                     : '';
 
+                // ИСПРАВЛЕНО: Обложка/плеер на главной карточке теперь находится НАВЕРХУ (до текста)
                 if (sectionId === "video") {
                     html += `
                         <div class="card media-card media-card-stable card-appear" data-id="${id}" data-score="${score}" data-author="${safeAuthor}" data-title="${safeTitle}" onclick="openPostPage('${sectionId}', '${id}')">
@@ -1230,7 +1216,7 @@
                                 ${timeSlot}
                             </div>
                             <div class="scroll-content">
-                                ${safeMediaUrl ? `<img src="${safeMediaUrl}" class="inline-post-img" style="max-height:150px;">` : ''}
+                                ${safeMediaUrl ? `<img src="${safeMediaUrl}" class="inline-post-img" style="max-height:220px; margin-bottom:15px;">` : ''}
                                 ${parsedContent}
                                 ${safeFileUrl ? `<a href="${safeFileUrl}" target="_blank" class="btn-book" onclick="event.stopPropagation()">Скачать книгу</a>` : ''}
                                 ${attachmentsHtml}
@@ -1238,6 +1224,7 @@
                             <div class="card-footer-bar">${ratingModuleHtml}</div>
                         </div>`;
                 } else {
+                    // Для постов и статей обложка теперь первая в .scroll-content
                     html += `
                         <div class="card media-card-stable card-appear" data-id="${id}" data-score="${score}" data-author="${safeAuthor}" data-title="${safeTitle}" onclick="openPostPage('${sectionId}', '${id}')">
                             <h3 class="i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
@@ -1246,7 +1233,11 @@
                                 ${dateSlot}
                                 ${timeSlot}
                             </div>
-                            <div class="scroll-content">${parsedContent}${attachmentsHtml}</div>
+                            <div class="scroll-content">
+                                ${safeMediaUrl ? `<img src="${safeMediaUrl}" class="inline-post-img" style="max-height:220px; margin-bottom:15px;">` : ''}
+                                ${parsedContent}
+                                ${attachmentsHtml}
+                            </div>
                             <div class="card-footer-bar">${ratingModuleHtml}</div>
                         </div>`;
                 }
@@ -1552,7 +1543,6 @@
         .share-btn-small:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); background: rgba(255, 208, 0, 0.05); }
         .share-btn-small .material-icons-round { font-size: 18px; }
 
-        /* ВИДЕОПЛЕЕР (по образцу index (7).html в расцветке ОРБИТЫ) */
         .custom-video-player {
             width: 100%;
             background: #000000;
@@ -1759,7 +1749,6 @@
         }
         .v-menu-item:hover { background: var(--poster-yellow); color: #000; }
 
-        /* АУДИОПЛЕЕР */
         .custom-audio-player {
             display: flex;
             align-items: center;
@@ -1851,7 +1840,7 @@
         }
         .post-page-content .custom-video-player,
         .post-page-content .custom-audio-player {
-            margin-top: 16px;
+            margin-bottom: 20px;
         }
         .post-page-footer {
             display: flex; justify-content: space-between; align-items: center;
