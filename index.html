@@ -3,117 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ОРБИТА — Космический Архив</title>
+    <title>ССБА — Официальный сайт</title>
     <link rel="icon" type="image/png" href="ssma.png">
     
-    <!-- Open Graph Meta (динамически обновляются в JS) -->
-    <meta property="og:site_name" content="ОРБИТА">
-    <meta property="og:type" content="website">
-    <meta property="og:title" id="og-title" content="ОРБИТА — Космический Архив">
-    <meta property="og:description" id="og-description" content="Архив статей, видео, музыки и книг.">
-    <meta property="og:image" id="og-image" content="https://i.ibb.co/sdwwQJcF/IMG-20261102-232112-037.png">
-    <meta property="og:url" id="og-url" content="https://orbit.kralin.su">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" id="twitter-title" content="ОРБИТА — Космический Архив">
-    <meta name="twitter:description" id="twitter-description" content="Архив статей, видео, музыки и книг.">
-    <meta name="twitter:image" id="twitter-image" content="https://i.ibb.co/sdwwQJcF/IMG-20261102-232112-037.png">
-
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Montserrat:wght@400;500;700;900&family=Orbitron:wght@800;900&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
-        import { getFirestore, collection, query, orderBy, getDocs, getDoc, doc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { 
-            getAuth, GoogleAuthProvider, OAuthProvider, signInWithPopup, 
-            createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged 
-        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, query, orderBy, getDocs, doc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
-            apiKey: "AIzaSyBYOyzTnpv6RH9sGziwzf2tJTW5ifuEyqY",
-            authDomain: "orbita1917.firebaseapp.com",
-            projectId: "orbita1917",
-            storageBucket: "orbita1917.firebasestorage.app",
-            messagingSenderId: "1085452844318",
-            appId: "1:1085452844318:web:dfee91a234981b58619d0f",
-            measurementId: "G-HY2LRW1Q8T"
+            apiKey: "AIzaSyANXc2iamJlauk-xsFYiITOBYBh1sUCKqU",
+            authDomain: "ssba-58900.firebaseapp.com",
+            databaseURL: "https://ssba-58900-default-rtdb.firebaseio.com",
+            projectId: "ssba-58900",
+            storageBucket: "ssba-58900.firebasestorage.app",
+            messagingSenderId: "615638249829",
+            appId: "1:615638249829:web:a68cd961fa79ebc7ef718c",
+            measurementId: "G-ZY8PQ2DXE3"
         };
 
         const app = initializeApp(firebaseConfig);
-        const analytics = getAnalytics(app);
         const db = getFirestore(app);
-        const auth = getAuth(app);
 
-        let currentUser = null;
-        let isLoginMode = false;
+        // === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
+        const viewedPosts = new Set();
         let currentLang = 'ru';
         const translationCache = new Map();
-        const userVotes = JSON.parse(localStorage.getItem('orbit_user_votes') || '{}');
-        const viewedPosts = new Set();
+        let currentSectionId = 'about';
+        let currentSortOrder = 'desc';
+        let currentYearFilter = 'all';
+        let currentSearchQuery = '';
+        let currentDocsCache = [];
         let activeVideoForDownload = '';
-        let selectorCallback = null;
-        
-        let currentSection = 'posts';
-        let searchQuery = '';
-        let searchFilter = 'all';
-        let currentPostId = null;
+        const sectionCache = new Map();
 
-        // --- Auth ---
-        window.openAuthModal = function() {
-            if (currentUser) {
-                if (confirm(`Вы вошли как ${currentUser.displayName || currentUser.email}.\nВыйти из аккаунта?`)) signOut(auth);
-                return;
-            }
-            document.getElementById('auth-modal').style.display = 'flex';
-        };
-        window.closeAuthModal = function() { document.getElementById('auth-modal').style.display = 'none'; };
-        window.toggleAuthMode = function() {
-            isLoginMode = !isLoginMode;
-            document.getElementById('auth-modal-title').textContent = isLoginMode ? 'Вход в аккаунт' : 'Регистрация';
-            document.getElementById('auth-submit-btn').textContent = isLoginMode ? 'Войти' : 'Зарегистрироваться';
-            document.getElementById('auth-toggle-text').textContent = isLoginMode ? 'Ещё нет аккаунта?' : 'Уже есть аккаунт?';
-            document.getElementById('auth-toggle-link').textContent = isLoginMode ? 'Зарегистрироваться' : 'Войти';
-        };
-        window.handleEmailAuth = async function(e) {
-            e.preventDefault();
-            const email = document.getElementById('auth-email').value;
-            const password = document.getElementById('auth-password').value;
-            try {
-                if (isLoginMode) await signInWithEmailAndPassword(auth, email, password);
-                else await createUserWithEmailAndPassword(auth, email, password);
-                closeAuthModal();
-            } catch (error) { alert('Ошибка авторизации: ' + error.message); }
-        };
-        window.handleGoogleAuth = async function() {
-            try { await signInWithPopup(auth, new GoogleAuthProvider()); closeAuthModal(); }
-            catch (error) { alert('Ошибка входа через Google: ' + error.message); }
-        };
-        window.handleAppleAuth = async function() {
-            try { await signInWithPopup(auth, new OAuthProvider('apple.com')); closeAuthModal(); }
-            catch (error) { alert('Ошибка входа через Apple: ' + error.message); }
-        };
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            const profileText = document.getElementById('header-profile-text');
-            profileText.textContent = user ? (user.displayName ? user.displayName.split(' ')[0] : 'Профиль') : 'Войти';
-        });
-
-        document.addEventListener('click', (e) => {
-            document.querySelectorAll('.v-more-menu.open').forEach(menu => {
-                if (!menu.contains(e.target) && !menu.previousElementSibling.contains(e.target)) {
-                    menu.classList.remove('open');
-                }
-            });
-        });
-
-        // --- Utils ---
         function escapeHTML(str) {
             if (!str) return '';
-            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
+
         function isValidURL(url) {
             if (!url) return false;
             try {
@@ -121,46 +58,18 @@
                 return ['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol) || url.startsWith('/') || url.startsWith('#');
             } catch { return false; }
         }
+
         function safelySetTextContent(element, text) {
             if (!element) return;
             element.textContent = text || '';
             element.setAttribute('data-original', text || '');
-        }
-        function saveUserVotes() { localStorage.setItem('orbit_user_votes', JSON.stringify(userVotes)); }
-
-        function sanitizeHTML(html) {
-            const allowedTags = ['B', 'I', 'U', 'S', 'SPAN', 'A', 'CODE', 'BR', 'P', 'DIV'];
-            const allowedAttrs = ['style', 'href', 'target', 'rel', 'class'];
-            const temp = document.createElement('div');
-            temp.innerHTML = html;
-            
-            function clean(node) {
-                if (node.nodeType === 3) return;
-                if (node.nodeType !== 1) { node.remove(); return; }
-                if (!allowedTags.includes(node.tagName)) {
-                    const parent = node.parentNode;
-                    while (node.firstChild) parent.insertBefore(node.firstChild, node);
-                    node.remove();
-                    return;
-                }
-                for (let i = node.attributes.length - 1; i >= 0; i--) {
-                    const attr = node.attributes[i];
-                    if (!allowedAttrs.includes(attr.name.toLowerCase()) || 
-                        (attr.name.toLowerCase() === 'href' && !isValidURL(attr.value)) ||
-                        attr.name.toLowerCase().startsWith('on')) {
-                        node.removeAttribute(attr.name);
-                    }
-                }
-                Array.from(node.childNodes).forEach(clean);
-            }
-            Array.from(temp.childNodes).forEach(clean);
-            return temp.innerHTML;
         }
 
         async function fetchTranslation(text, targetLang = 'en') {
             if (!text || !text.trim() || targetLang === 'ru') return text;
             const cacheKey = `${targetLang}:${text}`;
             if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
+
             try {
                 const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
                 const res = await fetch(url);
@@ -179,329 +88,121 @@
             if (mediaUrls && Array.isArray(mediaUrls)) urls = [...mediaUrls];
             else if (fallbackUrl) urls = [fallbackUrl];
             
-            let safeText = text || "";
-            
+            let safeText = escapeHTML(text || "");
             safeText = safeText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
-                if (isValidURL(url.trim())) return `<a href="${escapeHTML(url.trim())}" target="_blank" class="post-inline-link" rel="noopener noreferrer" onclick="event.stopPropagation()">${escapeHTML(linkText)}</a>`;
-                return escapeHTML(linkText);
+                if (isValidURL(url.trim())) return `<a href="${escapeHTML(url.trim())}" target="_blank" class="post-inline-link" rel="noopener noreferrer">${linkText}</a>`;
+                return linkText;
             });
             
             let usedIndexes = new Set();
             safeText = safeText.replace(/\[img(\d+)\]/g, (match, num) => {
                 const idx = parseInt(num) - 1;
-                if (urls[idx] && isValidURL(urls[idx]) && urls[idx].match(/\.(jpg|jpeg|png|gif|webp|svg)/i)) {
+                if (urls[idx] && isValidURL(urls[idx])) {
                     usedIndexes.add(idx);
                     return `<img src="${escapeHTML(urls[idx])}" class="inline-post-img" alt="Фото" loading="lazy">`;
                 }
                 return "";
             });
 
-            safeText = sanitizeHTML(safeText);
-
-            return `<div class="word-text i18n-translatability" data-original="${escapeHTML(text || "")}">${safeText}</div>`;
-        };
-
-        function calculateReadTime(text) {
-            if (!text) return "0 сек";
-            const cleanText = text.replace(/<[^>]*>/g, '').replace(/\[.*?\]\(.*?\)/g, '');
-            const words = cleanText.trim().split(/\s+/).length;
-            const seconds = Math.round((words / 200) * 60);
-            if (seconds < 60) return `${seconds} сек`;
-            const minutes = Math.floor(seconds / 60);
-            return `${minutes} мин`;
-        }
-
-        window.switchTab = function(tabId) {
-            if (currentPostId) {
-                closePostPage();
-            }
-            currentSection = tabId;
-            document.querySelectorAll('.main-section').forEach(sec => {
-                sec.classList.remove('active-anim');
-                sec.style.display = 'none';
-            });
-            const target = document.getElementById(`section-${tabId}`);
-            if (target) {
-                target.style.display = 'block';
-                void target.offsetWidth;
-                target.classList.add('active-anim');
-            }
-            document.querySelectorAll('.nav-tab-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tabId);
-            });
-            searchQuery = '';
-            const searchInput = document.getElementById(`search-input-${tabId}`);
-            if (searchInput) searchInput.value = '';
-            applySearchAndFilter(tabId);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            closeSidebar();
-        };
-
-        window.applySearchAndFilter = function(sectionId = currentSection) {
-            const input = document.getElementById(`search-input-${sectionId}`) || document.getElementById(`search-input-${currentSection}`);
-            if (input) searchQuery = input.value.toLowerCase().trim();
-            
-            const cards = document.querySelectorAll(`#container-${sectionId} .card`);
-            cards.forEach(card => {
-                const title = (card.dataset.title || '').toLowerCase();
-                const author = (card.dataset.author || '').toLowerCase();
-                let match = false;
-                
-                if (searchFilter === 'title') match = title.includes(searchQuery);
-                else if (searchFilter === 'author') match = author.includes(searchQuery);
-                else match = title.includes(searchQuery) || author.includes(searchQuery);
-                
-                if (match) {
-                    card.style.display = '';
-                    card.classList.add('card-appear');
-                    void card.offsetWidth;
-                    card.style.animation = 'none';
-                    card.offsetHeight;
-                    card.style.animation = '';
-                } else {
-                    card.style.display = 'none';
+            let topImagesHtml = "";
+            urls.forEach((url, idx) => {
+                if (!usedIndexes.has(idx) && isValidURL(url)) {
+                    topImagesHtml += `<img src="${escapeHTML(url)}" class="inline-post-img" style="margin-bottom:15px;" alt="Фото" loading="lazy">`;
                 }
             });
+
+            return topImagesHtml + `<div class="word-text i18n-translatability" data-original="${escapeHTML(text || "")}">${safeText}</div>`;
         };
 
-        window.openFilterModal = function() {
-            document.getElementById('filter-modal').style.display = 'flex';
-        };
-        window.closeFilterModal = function() {
-            document.getElementById('filter-modal').style.display = 'none';
-        };
-        window.setFilter = function(filterType) {
-            searchFilter = filterType;
-            document.querySelectorAll('.filter-option-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.filter === filterType);
-            });
-            applySearchAndFilter();
-            closeFilterModal();
-        };
+        const defaultAboutText = `ЧТО ТАКОЕ ССБА: КТО МЫ, ЗА ЧТО БОРЕМСЯ, ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО К НАМ И КАК ЭТО СДЕЛАТЬ
 
-        window.openPostPage = async function(collectionName, docId) {
-            document.querySelectorAll('video, audio').forEach(m => m.pause());
-            currentPostId = docId;
-            
-            const cleanUrl = `${window.location.origin}/${collectionName}/${docId}`;
-            window.history.pushState({ id: docId, collection: collectionName }, '', cleanUrl);
-            
-            document.querySelector('.main-wrapper').style.display = 'none';
-            document.querySelector('footer').style.display = 'none';
-            
-            const postPage = document.getElementById('post-page');
-            postPage.style.display = 'block';
-            postPage.innerHTML = `<div class="loader-container"><div class="loader"></div><p>Загрузка поста...</p></div>`;
-            
-            try {
-                const docSnap = await getDoc(doc(db, collectionName, docId));
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    renderPostPage(collectionName, docId, data);
-                } else {
-                    postPage.innerHTML = `<div style="text-align:center; padding: 50px; color: #ff5555;">Пост не найден.</div>`;
-                }
-            } catch (e) {
-                postPage.innerHTML = `<div style="text-align:center; padding: 50px; color: #ff5555;">Ошибка загрузки: ${e.message}</div>`;
-            }
-        };
+Введение
+Товарищи, читатели и сочувствующие. За время существования нашего канала мы не раз получали вопросы: «Кто вы такие?», «Почему скинхеды-сталинисты?», «За кого вы?», «Как к вам попасть?». Сегодня мы даём развёрнутый ответ. В этой статье мы расскажем, что такое ССБА, на каких идеях мы стоим, как устроена наша организация и что нужно, чтобы стать её частью.
 
-        window.closePostPage = function() {
-            document.querySelectorAll('#post-page video, #post-page audio').forEach(m => m.pause());
-            window.history.pushState({}, '', window.location.origin);
-            document.getElementById('post-page').style.display = 'none';
-            document.querySelector('.main-wrapper').style.display = 'block';
-            document.querySelector('footer').style.display = 'block';
-            currentPostId = null;
-        };
+Раздел 1. ЧТО ТАКОЕ ССБА
+1.1. Полное название и суть организации
+ССБА расшифровывается как «Скинхеды-Сталинисты Боевые Антифашисты». Это незарегистрированное идейное объединение, не являющееся юридическим лицом. Мы — люди, придерживающиеся марксистско-ленинских взглядов, чьей социальной базой является пролетариат и сочувствующие ему слои.
 
-        function createVideoPlayerHTML(mediaUrl, docId = '', title = '') {
-            return `
-                <div class="custom-video-player" data-post-id="${escapeHTML(docId)}" data-post-title="${escapeHTML(title)}">
-                    <div class="v-wrapper">
-                        <video preload="metadata" playsinline webkit-playsinline data-src="${mediaUrl}"></video>
-                        <div class="v-overlay"><button class="v-play-center" type="button"><i class="material-icons-round">play_arrow</i></button></div>
-                        <div class="v-gesture-speed"><i class="material-icons-round">fast_forward</i> 2X</div>
-                        <div class="v-gesture-seek v-gesture-seek-left"><i class="material-icons-round">fast_rewind</i> <span>-5 сек</span></div>
-                        <div class="v-gesture-seek v-gesture-seek-right"><i class="material-icons-round">fast_forward</i> <span>+5 сек</span></div>
-                    </div>
-                    <div class="v-controls">
-                        <button class="v-btn v-play-btn" type="button"><i class="material-icons-round">play_arrow</i></button>
-                        <div class="v-progress-bar"><div class="v-progress-fill"></div></div>
-                        <span class="v-time-display">00:00 / 00:00</span>
-                        <div style="position: relative;">
-                            <button class="v-btn v-more-btn" type="button" title="Ещё"><i class="material-icons-round">more_vert</i></button>
-                            <div class="v-more-menu">
-                                <button class="v-menu-item v-menu-mute" type="button"><i class="material-icons-round">volume_off</i> Убрать звук</button>
-                                <button class="v-menu-item v-menu-speed" type="button"><i class="material-icons-round">speed</i> Скорость</button>
-                                <button class="v-menu-item v-menu-quality" type="button"><i class="material-icons-round">high_quality</i> Качество</button>
-                                <button class="v-menu-item v-menu-download" type="button"><i class="material-icons-round">file_download</i> Скачать</button>
-                                <button class="v-menu-item v-menu-share" type="button"><i class="material-icons-round">share</i> Поделиться</button>
-                            </div>
-                        </div>
-                        <button class="v-btn v-fs-btn" type="button" title="На весь экран"><i class="material-icons-round">fullscreen</i></button>
-                    </div>
-                </div>
-            `;
-        }
+1.2. Почему «скинхеды-сталинисты»? Самоирония и исторический контекст
+Формация ССБА берёт начало с Telegram-канала «☭Архив Antifa and R.A.S.H.☭», созданного 26 января 2025 года. 13 июня 2025 года канал был переименован в «ССБА», что стало точкой отсчёта формирования организации. Мы используем слово «Сталинисты» с самоиронией — как вызов либеральным и нацистским кругам, и как маркёр принципиальной поддержки И.В. Сталина.
 
-        function createAudioPlayerHTML(mediaUrl) {
-            return `
-                <div class="custom-audio-player">
-                    <audio src="${mediaUrl}" preload="metadata"></audio>
-                    <button class="play-btn" type="button"><i class="material-icons-round">play_arrow</i></button>
-                    <div class="progress-bar"><div class="progress-fill"></div></div>
-                    <span class="time-display">00:00 / 00:00</span>
-                </div>
-            `;
-        }
+1.3. Почему «скинхеды»? Распределение ролей
+· Скинхеды в структуре ССБА выполняют функцию боевого крыла — уличная самооборона, антифашистское прямое действие, охрана мероприятий.
+· Идейное ядро — те, кто определяет стратегию, занимается теорией, агитацией и пропагандой, — составляют трудящиеся и сознательные коммунисты.
 
-        function renderPostPage(collectionName, docId, data) {
-            const postPage = document.getElementById('post-page');
-            const title = data.title || "[Без заголовка]";
-            const safeTitle = escapeHTML(title);
-            const author = data.author || "";
-            const safeAuthor = escapeHTML(author);
-            const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
-            const safeMediaUrl = isValidURL(mediaUrl) ? escapeHTML(mediaUrl) : "";
-            const fileUrl = data.fileUrl || "";
-            const safeFileUrl = isValidURL(fileUrl) ? escapeHTML(fileUrl) : "";
-            const score = data.rating || 0;
-            const voteKey = `${collectionName}_${docId}`;
-            const userVote = userVotes[voteKey] || 0;
-            
-            let dateStr = "";
-            if (data.createdAt) {
-                const dateObj = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
-                if (!isNaN(dateObj.getTime())) {
-                    dateStr = dateObj.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
-                }
-            }
-            
-            const readTime = calculateReadTime(data.text);
-            
-            let ratingScoreClass = "neutral", scoreText = "0";
-            if (score > 0) { ratingScoreClass = "positive"; scoreText = `+${score}`; }
-            else if (score < 0) { ratingScoreClass = "negative"; scoreText = `${score}`; }
-            
-            let parsedContent = window.parseContent(data.text, data.mediaUrls, data.mediaUrl);
-            
-            const attachmentsHtml = (data.attachments && data.attachments.length > 0)
-                ? `<div class="attachments-list">${data.attachments.map(a => `<a href="${a.url}" target="_blank" class="attachment-link"><i class="material-icons-round">attach_file</i> ${escapeHTML(a.name || 'Файл')}</a>`).join('')}</div>`
-                : '';
+Раздел 2. НАША ИДЕОЛОГИЯ
+2.1. Марксизм-ленинизм как основа
+ССБА базируется на марксизме-ленинизме — единственной научной теории освобождения пролетариата, разработанной К. Марксом, Ф. Энгельсом, В.И. Лениным и И.В. Сталиным.
 
-            let mediaBlock = '';
-            if (collectionName === 'video' && safeMediaUrl) {
-                mediaBlock = createVideoPlayerHTML(safeMediaUrl, docId, title);
-            } else if (collectionName === 'music' && safeMediaUrl) {
-                mediaBlock = createAudioPlayerHTML(safeMediaUrl);
-            } else if (safeMediaUrl) {
-                mediaBlock = `<img src="${safeMediaUrl}" class="inline-post-img" style="margin-bottom:20px; max-height:400px;">`;
-            }
+2.2. Ключевые принципы
+· Диктатура пролетариата — необходимая форма власти в переходный период.
+· Социалистическая революция — единственный путь свержения власти капитала.
+· Пролетарский интернационализм — у трудящихся нет Отечества в буржуазном смысле.
 
-            updateMetaTags(safeTitle, data.text || '', safeMediaUrl);
+Раздел 4. ПОЧЕМУ СТОИТ ВСТУПИТЬ ИМЕННО В ССБА
+Первое. Научная теория марксизма-ленинизма.
+Второе. Уличная дисциплина и антифашистская практика.
+Третье. Организация и дисциплина на основе демократического централизма.
 
-            // ИСПРАВЛЕНО: mediaBlock теперь идет НАВЕРХУ (сразу после мета-информации, перед текстом)
-            postPage.innerHTML = `
-                <div class="post-page-container">
-                    <button class="back-btn" onclick="closePostPage()">
-                        <i class="material-icons-round">arrow_back</i> Назад
-                    </button>
-                    
-                    <div class="post-page-card">
-                        <h1 class="post-page-title">${safeTitle}</h1>
-                        
-                        <div class="post-page-meta">
-                            ${safeAuthor ? `<div class="card-author">${safeAuthor}</div>` : ''}
-                            ${dateStr ? `<div class="card-date"><i class="material-icons-round">calendar_today</i> ${dateStr}</div>` : ''}
-                            <div class="card-date"><i class="material-icons-round">schedule</i> ${readTime}</div>
-                        </div>
-                        
-                        <div class="post-page-content">
-                            ${mediaBlock}
-                            ${parsedContent}
-                            ${attachmentsHtml}
-                            ${safeFileUrl ? `<a href="${safeFileUrl}" target="_blank" class="btn-book" style="margin-top:20px; width:auto; display:inline-flex;">Скачать файл</a>` : ''}
-                        </div>
-                        
-                        <div class="post-page-footer">
-                            <div class="google-plus-rating" id="post-rating-${docId}">
-                                <button class="btn-vote btn-vote-plus ${userVote === 1 ? 'voted-plus' : ''}" onclick="handleVote('${docId}', 1, '${collectionName}', 'post')" title="Поддержать (+1)"><i class="material-icons-round">add</i></button>
-                                <span class="rating-score ${ratingScoreClass}">${scoreText}</span>
-                                <button class="btn-vote btn-vote-minus ${userVote === -1 ? 'voted-minus' : ''}" onclick="handleVote('${docId}', -1, '${collectionName}', 'post')" title="Отрицательно (-1)"><i class="material-icons-round">remove</i></button>
-                            </div>
-                            
-                            <button class="share-btn" onclick="sharePost('${safeTitle}', '${window.location.origin}/${collectionName}/${docId}')">
-                                <i class="material-icons-round">share</i> Поделиться
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            if (collectionName === 'video') {
-                const playerContainer = postPage.querySelector('.post-page-card');
-                if (playerContainer) window.initCustomVideoPlayer(playerContainer);
-            } else if (collectionName === 'music') {
-                const playerContainer = postPage.querySelector('.post-page-card');
-                if (playerContainer) window.initCustomAudioPlayer(playerContainer);
-            }
-            
-            postPage.querySelector('.post-page-container').classList.add('slide-up');
-        }
+Раздел 5. КАК ВСТУПИТЬ В ССБА
+Свяжитесь с нами напрямую через Telegram: @StalinHead.`;
 
-        function updateMetaTags(title, text, imageUrl) {
-            const cleanText = text.replace(/<[^>]*>/g, '').substring(0, 150);
-            const finalImage = imageUrl || "https://i.ibb.co/sdwwQJcF/IMG-20261102-232112-037.png";
-            
-            document.title = title + " — ОРБИТА";
-            document.getElementById('og-title').content = title;
-            document.getElementById('og-description').content = cleanText;
-            document.getElementById('og-image').content = finalImage;
-            document.getElementById('og-url').content = window.location.href;
-            
-            document.getElementById('twitter-title').content = title;
-            document.getElementById('twitter-description').content = cleanText;
-            document.getElementById('twitter-image').content = finalImage;
-        }
-
-        window.sharePost = function(title, cleanUrl) {
-            const finalUrl = cleanUrl || window.location.href;
-            if (navigator.share) {
-                navigator.share({ title: title, url: finalUrl }).catch(() => {});
-            } else {
-                navigator.clipboard.writeText(finalUrl).then(() => {
-                    showToast('Ссылка скопирована!');
+        function initAboutText() {
+            getDocs(collection(db, "about")).then((querySnapshot) => {
+                let text = defaultAboutText;
+                querySnapshot.forEach((docSnap) => {
+                    if (docSnap.id === "main_info" && docSnap.data().text) text = docSnap.data().text;
                 });
-            }
-        };
-
-        function showToast(message) {
-            let toast = document.getElementById('toast');
-            if (!toast) {
-                toast = document.createElement('div');
-                toast.id = 'toast';
-                toast.className = 'toast';
-                document.body.appendChild(toast);
-            }
-            toast.textContent = message;
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2000);
+                renderAboutParagraphs(text);
+                if (currentLang !== 'ru') applyLanguage(currentLang);
+            }).catch(() => {
+                renderAboutParagraphs(defaultAboutText);
+            });
         }
 
-        window.toggleSidebar = function() {
-            document.getElementById('sidebar').classList.toggle('open');
-            document.getElementById('sidebar-overlay').classList.toggle('active');
-        };
-        window.closeSidebar = function() {
-            document.getElementById('sidebar').classList.remove('open');
-            document.getElementById('sidebar-overlay').classList.remove('active');
-        };
+        function renderAboutParagraphs(text) {
+            const aboutContainer = document.getElementById("about-container");
+            const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+            let html = "";
+            paragraphs.forEach(p => {
+                const safeP = escapeHTML(p.trim());
+                html += `<p class="i18n-translatability" data-original="${safeP}">${safeP}</p>`;
+            });
+            aboutContainer.innerHTML = html;
+        }
+
+        async function initDynamicQuotes() {
+            const quoteContainer = document.getElementById("quote-container");
+            try {
+                const querySnapshot = await getDocs(collection(db, "quotes"));
+                let loadedQuotes = [];
+                querySnapshot.forEach((docSnap) => {
+                    const d = docSnap.data();
+                    if(d.text && d.author) loadedQuotes.push({ text: d.text, author: d.author });
+                });
+                if (loadedQuotes.length > 0) {
+                    const selected = loadedQuotes[Math.floor(Math.random() * loadedQuotes.length)];
+                    safelySetTextContent(quoteContainer, `«${selected.text}» — ${selected.author}`);
+                } else {
+                    safelySetTextContent(quoteContainer, `«Без революционной теории не может быть и революционного движения.» — В. И. Ленин`);
+                }
+            } catch { safelySetTextContent(quoteContainer, "«Без революционной теории не может быть и революционного движения.» — В. И. Ленин"); }
+        }
 
         window.toggleLangModal = function() {
             const modal = document.getElementById('lang-modal');
             modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
         };
+
+        document.addEventListener('click', (e) => {
+            const modal = document.getElementById('lang-modal');
+            const box = document.querySelector('.lang-switch-box');
+            if (modal && modal.style.display === 'flex' && box && !box.contains(e.target)) modal.style.display = 'none';
+            document.querySelectorAll('.v-more-menu.open').forEach(menu => {
+                if (!menu.contains(e.target) && !menu.previousElementSibling.contains(e.target)) menu.classList.remove('open');
+            });
+        });
+
         window.switchLanguage = async function(lang) {
             currentLang = lang;
             document.querySelectorAll('.lang-btn').forEach(btn => {
@@ -512,6 +213,7 @@
             await applyLanguage(lang);
             document.querySelectorAll('.lang-btn').forEach(btn => btn.disabled = false);
         };
+
         async function applyLanguage(lang) {
             const elements = Array.from(document.querySelectorAll('.i18n-translatability, .card h3, .word-text'));
             const container = document.getElementById('progress-bar-container');
@@ -528,14 +230,17 @@
                 });
                 return;
             }
-            label.textContent = 'Выполняется перевод данных...';
+
+            label.textContent = 'Выполняется перевод страницы...';
             container.style.display = 'block';
             percent.textContent = '0%';
             fill.style.width = '0%';
+
             elements.forEach(el => {
                 if (!el.getAttribute('data-original')) el.setAttribute('data-original', el.textContent.trim());
                 el.classList.add('translating-pulse');
             });
+
             let done = 0;
             for (const el of elements) {
                 const orig = el.getAttribute('data-original') || el.textContent.trim();
@@ -550,93 +255,60 @@
             setTimeout(() => { if (currentLang !== 'ru') container.style.display = 'none'; }, 1500);
         }
 
-        window.handleVote = async function(postId, voteType, sectionId, context = 'card') {
-            let card = null;
-            let plusBtn = null, minusBtn = null, ratingDisplay = null;
-            let currentScore = 0;
+        window.initCustomAudioPlayer = function(container) {
+            const player = container.querySelector('.custom-audio-player');
+            if (!player) return;
+            const audio = player.querySelector('audio');
+            const playBtn = player.querySelector('.play-btn');
+            const playIcon = playBtn.querySelector('.material-icons');
+            const progressBar = player.querySelector('.progress-bar');
+            const progressFill = player.querySelector('.progress-fill');
+            const timeDisplay = player.querySelector('.time-display');
+            const volumeBtn = player.querySelector('.volume-btn');
+            const volumeIcon = volumeBtn.querySelector('.material-icons');
 
-            if (context === 'post') {
-                const ratingContainer = document.getElementById(`post-rating-${postId}`);
-                if (!ratingContainer) return;
-                plusBtn = ratingContainer.querySelector('.btn-vote-plus');
-                minusBtn = ratingContainer.querySelector('.btn-vote-minus');
-                ratingDisplay = ratingContainer.querySelector('.rating-score');
-                currentScore = parseInt(ratingDisplay.textContent.replace('+', '')) || 0;
-                card = document.querySelector(`.section-block[data-section="${sectionId}"] .card[data-id="${postId}"]`);
-            } else {
-                card = document.querySelector(`.section-block[data-section="${sectionId}"] .card[data-id="${postId}"]`);
-                if (!card) return;
-                plusBtn = card.querySelector('.btn-vote-plus');
-                minusBtn = card.querySelector('.btn-vote-minus');
-                ratingDisplay = card.querySelector('.rating-score');
-                currentScore = parseInt(card.getAttribute('data-score') || '0', 10);
-            }
+            const formatTime = (s) => { if (isNaN(s)) return "00:00"; const m = Math.floor(s/60), sec = Math.floor(s%60); return `${m<10?'0':''}${m}:${sec<10?'0':''}${sec}`; };
+            playBtn.addEventListener('click', () => { audio.paused ? audio.play() : audio.pause(); });
+            audio.addEventListener('play', () => { playIcon.textContent = 'pause'; });
+            audio.addEventListener('pause', () => { playIcon.textContent = 'play_arrow'; });
+            audio.addEventListener('timeupdate', () => {
+                const p = (audio.currentTime / audio.duration) * 100;
+                progressFill.style.width = `${p || 0}%`;
+                timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+            });
+            audio.addEventListener('loadedmetadata', () => { timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`; });
 
-            const voteKey = `${sectionId}_${postId}`;
-            const prevVote = userVotes[voteKey] || 0;
-            let newVote = 0, delta = 0;
-            if (voteType === 1) {
-                if (prevVote === 1) { newVote = 0; delta = -1; }
-                else if (prevVote === -1) { newVote = 1; delta = 2; }
-                else { newVote = 1; delta = 1; }
-            } else if (voteType === -1) {
-                if (prevVote === -1) { newVote = 0; delta = 1; }
-                else if (prevVote === 1) { newVote = -1; delta = -2; }
-                else { newVote = -1; delta = -1; }
-            }
-            const newScore = currentScore + delta;
-            
-            if (card) {
-                card.setAttribute('data-score', newScore);
-                const mainRating = card.querySelector('.rating-score');
-                const mainPlus = card.querySelector('.btn-vote-plus');
-                const mainMinus = card.querySelector('.btn-vote-minus');
-                if (mainRating) {
-                    mainRating.className = 'rating-score';
-                    if (newScore > 0) { mainRating.textContent = `+${newScore}`; mainRating.classList.add('positive'); }
-                    else if (newScore < 0) { mainRating.textContent = `${newScore}`; mainRating.classList.add('negative'); }
-                    else { mainRating.textContent = `0`; mainRating.classList.add('neutral'); }
+            let isDragging = false;
+            function scrub(e) {
+                const rect = progressBar.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                if (audio.duration) {
+                    audio.currentTime = pos * audio.duration;
+                    progressFill.style.width = `${pos * 100}%`;
                 }
-                if (mainPlus) mainPlus.classList.toggle('voted-plus', newVote === 1);
-                if (mainMinus) mainMinus.classList.toggle('voted-minus', newVote === -1);
             }
 
-            const postRatingContainer = document.getElementById(`post-rating-${postId}`);
-            if (postRatingContainer) {
-                const postRating = postRatingContainer.querySelector('.rating-score');
-                const postPlus = postRatingContainer.querySelector('.btn-vote-plus');
-                const postMinus = postRatingContainer.querySelector('.btn-vote-minus');
-                if (postRating) {
-                    postRating.className = 'rating-score';
-                    if (newScore > 0) { postRating.textContent = `+${newScore}`; postRating.classList.add('positive'); }
-                    else if (newScore < 0) { postRating.textContent = `${newScore}`; postRating.classList.add('negative'); }
-                    else { postRating.textContent = `0`; postRating.classList.add('neutral'); }
-                }
-                if (postPlus) postPlus.classList.toggle('voted-plus', newVote === 1);
-                if (postMinus) postMinus.classList.toggle('voted-minus', newVote === -1);
-            }
+            progressBar.addEventListener('mousedown', (e) => { isDragging = true; scrub(e); });
+            window.addEventListener('mousemove', (e) => { if (isDragging) scrub(e); });
+            window.addEventListener('mouseup', () => { isDragging = false; });
 
-            userVotes[voteKey] = newVote;
-            saveUserVotes();
-
-            try { await updateDoc(doc(db, sectionId, postId), { rating: increment(delta) }); } catch (err) { console.warn(err); }
+            progressBar.addEventListener('touchstart', (e) => { isDragging = true; scrub(e); }, {passive: true});
+            window.addEventListener('touchmove', (e) => { if (isDragging) scrub(e); }, {passive: true});
+            window.addEventListener('touchend', () => { isDragging = false; });
         };
 
         window.initCustomVideoPlayer = function(container) {
             const player = container.querySelector('.custom-video-player');
             if (!player) return;
 
-            ['click', 'dblclick'].forEach(evt => {
-                player.addEventListener(evt, (e) => e.stopPropagation());
-            });
-
             const video = player.querySelector('video');
             const wrapper = player.querySelector('.v-wrapper');
             const overlay = player.querySelector('.v-overlay');
             const playCenterBtn = player.querySelector('.v-play-center');
             const playBtn = player.querySelector('.v-play-btn');
-            const playIcon = playBtn ? playBtn.querySelector('.material-icons-round') : null;
-            const centerIcon = playCenterBtn ? playCenterBtn.querySelector('.material-icons-round') : null;
+            const playIcon = playBtn ? playBtn.querySelector('.material-icons') : null;
+            const centerIcon = playCenterBtn ? playCenterBtn.querySelector('.material-icons') : null;
             const progressBar = player.querySelector('.v-progress-bar');
             const progressFill = player.querySelector('.v-progress-fill');
             const timeDisplay = player.querySelector('.v-time-display');
@@ -683,7 +355,7 @@
 
             video.addEventListener('loadeddata', () => {
                 if (video.autoplay) {
-                    video.play().catch(() => {});
+                    video.play().catch(e => {});
                 }
             });
 
@@ -692,7 +364,7 @@
                     loadVideo();
                     video.autoplay = true;
                     if (video.readyState >= 1) {
-                        video.play().catch(() => {});
+                        video.play().catch(e => console.log("Play blocked:", e));
                     }
                     return;
                 }
@@ -701,7 +373,7 @@
                     document.querySelectorAll('video, audio').forEach(v => {
                         if (v !== video) v.pause();
                     });
-                    video.play().catch(() => {});
+                    video.play().catch(e => console.log("Autoplay blocked:", e));
                 } else {
                     video.pause();
                 }
@@ -709,14 +381,12 @@
 
             if (playCenterBtn) playCenterBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
             if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
-            if (overlay) overlay.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
-            wrapper.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+            if (overlay) overlay.addEventListener('click', togglePlay);
 
             let lastTapTime = 0;
             let longPressTimer = null;
 
             wrapper.addEventListener('touchstart', (e) => {
-                e.stopPropagation();
                 loadVideo();
                 const now = Date.now();
                 const tapGap = now - lastTapTime;
@@ -742,8 +412,7 @@
                 lastTapTime = now;
             }, {passive: false});
 
-            wrapper.addEventListener('touchend', (e) => {
-                e.stopPropagation();
+            wrapper.addEventListener('touchend', () => {
                 clearTimeout(longPressTimer);
                 video.playbackRate = 1.0;
                 if (speedOverlay) speedOverlay.style.display = 'none';
@@ -780,7 +449,6 @@
 
             let isVideoDragging = false;
             function scrubVideo(e) {
-                if (!isLoaded) loadVideo();
                 const rect = progressBar.getBoundingClientRect();
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
@@ -791,12 +459,11 @@
             }
 
             if (progressBar) {
-                progressBar.addEventListener('click', (e) => { e.stopPropagation(); scrubVideo(e); });
-                progressBar.addEventListener('mousedown', (e) => { e.stopPropagation(); isVideoDragging = true; scrubVideo(e); });
+                progressBar.addEventListener('mousedown', (e) => { isVideoDragging = true; scrubVideo(e); });
                 window.addEventListener('mousemove', (e) => { if (isVideoDragging) scrubVideo(e); });
                 window.addEventListener('mouseup', () => { isVideoDragging = false; });
 
-                progressBar.addEventListener('touchstart', (e) => { e.stopPropagation(); isVideoDragging = true; scrubVideo(e); }, {passive: true});
+                progressBar.addEventListener('touchstart', (e) => { isVideoDragging = true; scrubVideo(e); }, {passive: true});
                 window.addEventListener('touchmove', (e) => { if (isVideoDragging) scrubVideo(e); }, {passive: true});
                 window.addEventListener('touchend', () => { isVideoDragging = false; });
             }
@@ -804,7 +471,7 @@
             function toggleMute() {
                 video.muted = !video.muted;
                 if (menuMuteBtn) {
-                    menuMuteBtn.innerHTML = `<i class="material-icons-round">${video.muted ? 'volume_up' : 'volume_off'}</i> ${video.muted ? 'Включить звук' : 'Убрать звук'}`;
+                    menuMuteBtn.innerHTML = `<i class="material-icons">${video.muted ? 'volume_up' : 'volume_off'}</i> ${video.muted ? 'Включить звук' : 'Убрать звук'}`;
                 }
             }
 
@@ -821,7 +488,8 @@
                     e.stopPropagation();
                     if (moreMenu) moreMenu.classList.remove('open');
                     openSelectorModal('Скорость воспроизведения', ['0.5x', '1x', '1.25x', '1.5x', '2x'], `${video.playbackRate}x`, (val) => {
-                        video.playbackRate = parseFloat(val);
+                        const rate = parseFloat(val);
+                        video.playbackRate = rate;
                     });
                 });
             }
@@ -830,7 +498,7 @@
                 menuQualityBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     if (moreMenu) moreMenu.classList.remove('open');
-                    openSelectorModal('Качество видео', ['Авто', '720p', '480p', '360p'], 'Авто', () => {});
+                    openSelectorModal('Качество видео', ['Авто', '720p', '480p', '360p'], 'Авто', (val) => {});
                 });
             }
 
@@ -898,10 +566,16 @@
                     e.stopPropagation();
                     if (moreMenu) moreMenu.classList.remove('open');
                     const card = container.closest('.card');
-                    const postId = player.dataset.postId || (card ? card.dataset.id : '') || currentPostId || '';
-                    const postTitle = player.dataset.postTitle || (card ? card.querySelector('h3')?.textContent : 'Видео ОРБИТА');
-                    const shareUrl = postId ? `${window.location.origin}/video/${postId}` : window.location.href;
-                    sharePost(postTitle, shareUrl);
+                    const postId = card ? card.getAttribute('data-id') : '';
+                    const titleEl = card ? card.querySelector('h3') : null;
+                    const title = titleEl ? titleEl.textContent : 'Видео ССБА';
+                    const shareUrl = `${window.location.origin}${window.location.pathname.replace(/index.*\.html$/, '')}page.html?id=${postId}&type=${currentSectionId}`;
+
+                    if (navigator.share) {
+                        navigator.share({ title: title, text: title, url: shareUrl }).catch(err => console.log('Share canceled', err));
+                    } else {
+                        navigator.clipboard.writeText(shareUrl).then(() => { alert('Ссылка на пост скопирована!'); }).catch(() => { prompt('Скопируйте ссылку:', shareUrl); });
+                    }
                 });
             }
 
@@ -909,69 +583,26 @@
             player.addEventListener('touchstart', loadVideo, { once: true });
         };
 
-        window.initCustomAudioPlayer = function(container) {
-            const player = container.querySelector('.custom-audio-player');
-            if (!player) return;
-
-            ['click', 'dblclick'].forEach(evt => {
-                player.addEventListener(evt, (e) => e.stopPropagation());
-            });
-
-            const audio = player.querySelector('audio');
-            const playBtn = player.querySelector('.play-btn');
-            const playIcon = playBtn.querySelector('.material-icons-round');
-            const progressBar = player.querySelector('.progress-bar');
-            const progressFill = player.querySelector('.progress-fill');
-            const timeDisplay = player.querySelector('.time-display');
-            const formatTime = (s) => { if (isNaN(s) || !isFinite(s)) return "00:00"; const m = Math.floor(s/60), sec = Math.floor(s%60); return `${m<10?'0':''}${m}:${sec<10?'0':''}${sec}`; };
-            
-            playBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (audio.paused) {
-                    document.querySelectorAll('video, audio').forEach(m => { if (m !== audio) m.pause(); });
-                    audio.play();
-                } else {
-                    audio.pause();
-                }
-            });
-            audio.addEventListener('play', () => { playIcon.textContent = 'pause'; });
-            audio.addEventListener('pause', () => { playIcon.textContent = 'play_arrow'; });
-            audio.addEventListener('timeupdate', () => {
-                const p = (audio.currentTime / audio.duration) * 100;
-                progressFill.style.width = `${p || 0}%`;
-                timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
-            });
-            audio.addEventListener('loadedmetadata', () => { timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`; });
-            
-            let isDragging = false;
-            function scrub(e) {
-                const rect = progressBar.getBoundingClientRect();
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-                if (audio.duration) {
-                    audio.currentTime = pos * audio.duration;
-                    progressFill.style.width = `${pos * 100}%`;
-                }
-            }
-            progressBar.addEventListener('click', (e) => { e.stopPropagation(); scrub(e); });
-            progressBar.addEventListener('mousedown', (e) => { e.stopPropagation(); isDragging = true; scrub(e); });
-            window.addEventListener('mousemove', (e) => { if (isDragging) scrub(e); });
-            window.addEventListener('mouseup', () => { isDragging = false; });
-            progressBar.addEventListener('touchstart', (e) => { e.stopPropagation(); isDragging = true; scrub(e); }, {passive: true});
-            window.addEventListener('touchmove', (e) => { if (isDragging) scrub(e); }, {passive: true});
-            window.addEventListener('touchend', () => { isDragging = false; });
-        };
-
+        let selectorCallback = null;
         window.openSelectorModal = function(title, options, currentVal, callback) {
             document.getElementById('selector-modal-title').textContent = title;
             selectorCallback = callback;
             const container = document.getElementById('selector-options-container');
-            container.innerHTML = options.map(opt => `<button class="selector-option-btn ${opt === currentVal ? 'active' : ''}" type="button" onclick="selectOption('${opt}')">${opt}</button>`).join('');
+            let html = '';
+            options.forEach(opt => {
+                const isActive = opt === currentVal ? 'active' : '';
+                html += `<button class="selector-option-btn ${isActive}" type="button" onclick="selectOption('${opt}')">${opt}</button>`;
+            });
+            container.innerHTML = html;
             document.getElementById('selector-modal').style.display = 'flex';
         };
+
         window.selectOption = function(val) {
-            document.querySelectorAll('.selector-option-btn').forEach(btn => btn.classList.toggle('active', btn.textContent === val));
+            document.querySelectorAll('.selector-option-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === val);
+            });
         };
+
         window.closeSelectorModal = function(apply = false) {
             if (apply && selectorCallback) {
                 const activeBtn = document.querySelector('.selector-option-btn.active');
@@ -983,14 +614,17 @@
 
         function showProgressUI(title) {
             const container = document.getElementById('progress-bar-container');
-            document.getElementById('progress-bar-label').textContent = title;
-            document.getElementById('progress-bar-percent').textContent = '0%';
-            document.getElementById('progress-bar-fill').style.width = '0%';
+            const label = document.getElementById('progress-bar-label');
+            const percentText = document.getElementById('progress-bar-percent');
+            const fill = document.getElementById('progress-bar-fill');
+            label.textContent = title;
+            percentText.textContent = '0%';
+            fill.style.width = '0%';
             container.style.display = 'block';
             return (p) => {
                 const val = Math.min(100, Math.max(0, Math.round(p)));
-                document.getElementById('progress-bar-percent').textContent = `${val}%`;
-                document.getElementById('progress-bar-fill').style.width = `${val}%`;
+                percentText.textContent = `${val}%`;
+                fill.style.width = `${val}%`;
             };
         }
         function hideProgressUI() {
@@ -1003,8 +637,14 @@
             const update = showProgressUI("Скачивание видео...");
             try {
                 const tempVideo = document.createElement('video');
-                tempVideo.crossOrigin = "anonymous"; tempVideo.src = src; tempVideo.muted = true; tempVideo.preload = "auto";
-                await new Promise((resolve, reject) => { tempVideo.onloadeddata = resolve; tempVideo.onerror = reject; });
+                tempVideo.crossOrigin = "anonymous";
+                tempVideo.src = src;
+                tempVideo.muted = true;
+                tempVideo.preload = "auto";
+                await new Promise((resolve, reject) => {
+                    tempVideo.onloadeddata = resolve;
+                    tempVideo.onerror = reject;
+                });
                 const duration = tempVideo.duration || 1;
                 const canvas = document.createElement('canvas');
                 canvas.width = tempVideo.videoWidth || 1280;
@@ -1021,8 +661,11 @@
                     const blob = new Blob(chunks, { type: 'video/webm' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    a.href = url; a.download = 'Orbit_video.webm';
-                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                    a.href = url;
+                    a.download = 'SSBA_video.webm';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                     hideProgressUI();
                 };
@@ -1034,12 +677,12 @@
                     ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
                     ctx.save();
                     ctx.globalAlpha = 0.55;
-                    ctx.fillStyle = "#FFD000";
+                    ctx.fillStyle = "#ffffff";
                     const fontSize = Math.max(16, Math.round(canvas.height * 0.045));
-                    ctx.font = `bold ${fontSize}px 'Russo One', sans-serif`;
+                    ctx.font = `bold ${fontSize}px Montserrat, sans-serif`;
                     ctx.shadowColor = "rgba(0,0,0,0.8)";
                     ctx.shadowBlur = 6;
-                    ctx.fillText("@Orbit_1917", canvas.width - (fontSize * 9), canvas.height - (fontSize * 1.2));
+                    ctx.fillText("su-ssma.netlify.app", canvas.width - (fontSize * 11), canvas.height - (fontSize * 1.2));
                     ctx.restore();
                     update((tempVideo.currentTime / duration) * 100);
                     requestAnimationFrame(drawFrame);
@@ -1047,206 +690,244 @@
                 drawFrame();
             } catch (err) {
                 const a = document.createElement('a');
-                a.href = src; a.download = 'Orbit_video.mp4'; a.target = '_blank';
-                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                a.href = src;
+                a.download = 'SSBA_video.mp4';
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
                 hideProgressUI();
             }
         };
 
-        async function initAboutText() {
-            const aboutContainer = document.getElementById("about-container");
-            try {
-                const docSnap = await getDoc(doc(db, "about", "main_info"));
-                if (docSnap.exists() && docSnap.data().text) {
-                    const text = docSnap.data().text;
-                    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-                    aboutContainer.innerHTML = paragraphs.map(p => `<p class="i18n-translatability" data-original="${escapeHTML(p.trim())}">${sanitizeHTML(p.trim())}</p>`).join('');
-                } else {
-                    aboutContainer.innerHTML = `<p class="i18n-translatability" data-original="Информация пока не добавлена.">Информация пока не добавлена.</p>`;
-                }
-            } catch {
-                aboutContainer.innerHTML = `<p class="i18n-translatability" data-original="Информация пока не добавлена.">Информация пока не добавлена.</p>`;
-            }
-            if (currentLang !== 'ru') applyLanguage(currentLang);
+        function extractYearsFromItem(item) {
+            const combined = `${item.title || ''} ${item.text || ''}`;
+            const matches = combined.match(/\b(18|19|20)\d{2}\b/g);
+            return matches ? Array.from(new Set(matches)) : [];
         }
 
-        async function initDynamicQuotes() {
-            const quoteContainer = document.getElementById("quote-container");
-            try {
-                const querySnapshot = await getDocs(collection(db, "quotes"));
-                let loadedQuotes = [];
-                querySnapshot.forEach((docSnap) => {
-                    const d = docSnap.data();
-                    if(d.text && d.author) loadedQuotes.push({ text: d.text, author: d.author });
-                });
-                if (loadedQuotes.length > 0) {
-                    const selected = loadedQuotes[Math.floor(Math.random() * loadedQuotes.length)];
-                    safelySetTextContent(quoteContainer, `«${selected.text}» — ${selected.author}`);
-                } else {
-                    safelySetTextContent(quoteContainer, `«Цитаты скоро появятся в админ-панели.» — ОРБИТА`);
-                }
-            } catch { safelySetTextContent(quoteContainer, "«Цитаты скоро появятся в админ-панели.» — ОРБИТА"); }
-        }
-
-        async function loadSectionData(sectionId, retryCount = 0) {
-            const container = document.getElementById(`container-${sectionId}`);
-            if (!container) return;
-
-            container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Загрузка...</p></div>`;
-
-            try {
-                const q = query(collection(db, sectionId), orderBy("createdAt", "desc"));
-                const querySnapshot = await getDocs(q);
-                let docs = [];
-                querySnapshot.forEach((docSnap) => { docs.push({ id: docSnap.id, ...docSnap.data() }); });
-                renderSectionCards(sectionId, docs);
-            } catch (err) {
-                console.warn(`Ошибка загрузки ${sectionId} (попытка ${retryCount + 1}):`, err);
-                if (retryCount < 2) {
-                    setTimeout(() => loadSectionData(sectionId, retryCount + 1), 2000);
-                } else {
-                    container.innerHTML = `
-                        <div class="card media-card-stable" style="grid-column: 1 / -1;">
-                            <p style="text-align:center; color:var(--poster-yellow); margin-bottom:10px;">Не удалось загрузить данные.</p>
-                            <p style="text-align:center; color:#888; font-size:0.9rem; margin-bottom:15px;">Проверьте подключение к интернету.</p>
-                            <button onclick="loadSectionData('${sectionId}')" style="display:block; margin:0 auto; background:var(--poster-yellow); color:#000; border:none; padding:10px 20px; border-radius:4px; font-family:'Russo One', sans-serif; cursor:pointer;">ОБНОВИТЬ</button>
-                        </div>
-                    `;
-                }
+        function updateYearSelectOptions(docs) {
+            const yearSelect = document.getElementById('filter-year-select');
+            if (!yearSelect) return;
+            const years = new Set();
+            docs.forEach(item => extractYearsFromItem(item).forEach(y => years.add(y)));
+            const sorted = Array.from(years).sort((a, b) => b - a);
+            let html = `<option value="all">Все года</option>`;
+            sorted.forEach(y => html += `<option value="${y}">${y} год</option>`);
+            yearSelect.innerHTML = html;
+            yearSelect.value = currentYearFilter;
+            if (currentYearFilter !== 'all' && !years.has(currentYearFilter)) {
+                currentYearFilter = 'all';
+                yearSelect.value = 'all';
             }
         }
 
-        function renderSectionCards(sectionId, docs) {
-            const container = document.getElementById(`container-${sectionId}`);
-            if (!container) return;
-            if (!docs || docs.length === 0) {
-                container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Нет публикаций.</p></div>`;
+        window.handleSearchInput = function(value) {
+            currentSearchQuery = value.toLowerCase().trim();
+            renderFilteredCards();
+        };
+
+        window.handleSortChange = function(value) {
+            currentSortOrder = value;
+            renderFilteredCards();
+        };
+
+        window.handleYearFilterChange = function(value) {
+            currentYearFilter = value;
+            renderFilteredCards();
+        };
+
+        function renderFilteredCards() {
+            const container = document.getElementById('dynamic-content-container');
+            const sectionId = currentSectionId;
+
+            if (!currentDocsCache || currentDocsCache.length === 0) {
+                container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1;"><p style="text-align:center; color:#666;">В данном разделе пока нет публикаций.</p></div>`;
                 return;
             }
+
+            let filtered = currentDocsCache.filter(item => {
+                if (currentYearFilter !== 'all' && !extractYearsFromItem(item).includes(currentYearFilter)) return false;
+                if (currentSearchQuery !== '') {
+                    const t = (item.title || '').toLowerCase();
+                    const txt = (item.text || '').toLowerCase();
+                    return t.includes(currentSearchQuery) || txt.includes(currentSearchQuery);
+                }
+                return true;
+            });
+
+            filtered.sort((a, b) => {
+                const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+                const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+                return currentSortOrder === 'desc' ? tB - tA : tA - tB;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Публикации не найдены.</p></div>`;
+                return;
+            }
+
             let html = "";
-            docs.forEach((data) => {
+            filtered.forEach((data) => {
                 const id = data.id;
-                window.registerView(sectionId, id);
+                registerView(sectionId, id);
+
                 const title = data.title || "[Без заголовка]";
                 const safeTitle = escapeHTML(title);
-                const author = data.author || "";
-                const safeAuthor = escapeHTML(author);
                 const mediaUrl = (data.mediaUrl || (data.mediaUrls && data.mediaUrls[0]) || "");
                 const safeMediaUrl = isValidURL(mediaUrl) ? escapeHTML(mediaUrl) : "";
-                const fileUrl = data.fileUrl || "";
-                const safeFileUrl = isValidURL(fileUrl) ? escapeHTML(fileUrl) : "";
-                const score = data.rating || 0;
-                const voteKey = `${sectionId}_${id}`;
-                const userVote = userVotes[voteKey] || 0;
-                
-                let dateStr = "";
-                if (data.createdAt) {
-                    const dateObj = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
-                    if (!isNaN(dateObj.getTime())) {
-                        dateStr = dateObj.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                    }
+
+                let parsedContent = "";
+                if (sectionId === "posts" || sectionId === "photo" || sectionId === "books") {
+                    parsedContent = parseContent(data.text, data.mediaUrls, data.mediaUrl);
+                } else {
+                    parsedContent = parseContent(data.text, null, null);
                 }
-                const readTime = calculateReadTime(data.text);
 
-                let ratingScoreClass = "neutral", scoreText = "0";
-                if (score > 0) { ratingScoreClass = "positive"; scoreText = `+${score}`; }
-                else if (score < 0) { ratingScoreClass = "negative"; scoreText = `${score}`; }
-                let parsedContent = window.parseContent(data.text, data.mediaUrls, data.mediaUrl);
-                
-                const cleanShareUrl = `${window.location.origin}/${sectionId}/${id}`;
-                const ratingModuleHtml = `
-                    <div class="card-footer-inner">
-                        <div class="google-plus-rating">
-                            <button class="btn-vote btn-vote-plus ${userVote === 1 ? 'voted-plus' : ''}" onclick="event.stopPropagation(); handleVote('${id}', 1, '${sectionId}', 'card')" title="Поддержать (+1)"><i class="material-icons-round">add</i></button>
-                            <span class="rating-score ${ratingScoreClass}">${scoreText}</span>
-                            <button class="btn-vote btn-vote-minus ${userVote === -1 ? 'voted-minus' : ''}" onclick="event.stopPropagation(); handleVote('${id}', -1, '${sectionId}', 'card')" title="Отрицательно (-1)"><i class="material-icons-round">remove</i></button>
-                        </div>
-                        <button class="share-btn-small" onclick="event.stopPropagation(); sharePost('${safeTitle}', '${cleanShareUrl}')" title="Поделиться">
-                            <i class="material-icons-round">share</i>
-                        </button>
-                    </div>`;
-                    
-                const authorSlot = safeAuthor ? `<div class="card-author i18n-translatability" data-original="${safeAuthor}">Автор: ${safeAuthor}</div>` : `<div class="card-author empty"></div>`;
-                const dateSlot = dateStr ? `<div class="card-date"><i class="material-icons-round">calendar_today</i> ${dateStr}</div>` : '';
-                const timeSlot = `<div class="card-date"><i class="material-icons-round">schedule</i> ${readTime}</div>`;
-                const attachmentsHtml = (data.attachments && data.attachments.length > 0)
-                    ? `<div class="attachments-list">${data.attachments.map(a => `<a href="${a.url}" target="_blank" class="attachment-link" onclick="event.stopPropagation()"><i class="material-icons-round">attach_file</i> ${escapeHTML(a.name || 'Файл')}</a>`).join('')}</div>`
-                    : '';
-
-                // ИСПРАВЛЕНО: Обложка/плеер на главной карточке теперь находится НАВЕРХУ (до текста)
                 if (sectionId === "video") {
                     html += `
-                        <div class="card media-card media-card-stable card-appear" data-id="${id}" data-score="${score}" data-author="${safeAuthor}" data-title="${safeTitle}" onclick="openPostPage('${sectionId}', '${id}')">
+                        <div class="card media-card media-card-stable" data-id="${id}">
                             <h3 class="media-title-center i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
-                            <div class="card-meta">
-                                ${authorSlot}
-                                ${dateSlot}
-                                ${timeSlot}
-                            </div>
                             <div class="scroll-content" style="width: 100%;">
-                                ${safeMediaUrl ? createVideoPlayerHTML(safeMediaUrl, id, title) : ''}
+                                ${safeMediaUrl ? `
+                                    <div class="custom-video-player">
+                                        <div class="v-wrapper">
+                                            <video preload="metadata" playsinline webkit-playsinline data-src="${safeMediaUrl}"></video>
+                                            <div class="v-overlay">
+                                                <button class="v-play-center" type="button"><i class="material-icons">play_arrow</i></button>
+                                            </div>
+                                            <div class="v-gesture-speed"><i class="material-icons">fast_forward</i> 2X</div>
+                                            <div class="v-gesture-seek v-gesture-seek-left"><i class="material-icons">fast_rewind</i> <span>-5 сек</span></div>
+                                            <div class="v-gesture-seek v-gesture-seek-right"><i class="material-icons">fast_forward</i> <span>+5 сек</span></div>
+                                        </div>
+                                        <div class="v-controls">
+                                            <button class="v-btn v-play-btn" type="button"><i class="material-icons">play_arrow</i></button>
+                                            <div class="v-progress-bar"><div class="v-progress-fill"></div></div>
+                                            <span class="v-time-display">00:00 / 00:00</span>
+                                            <div style="position: relative;">
+                                                <button class="v-btn v-more-btn" type="button" title="Ещё"><i class="material-icons">more_vert</i></button>
+                                                <div class="v-more-menu">
+                                                    <button class="v-menu-item v-menu-mute" type="button"><i class="material-icons">volume_off</i> Убрать звук</button>
+                                                    <button class="v-menu-item v-menu-speed" type="button"><i class="material-icons">speed</i> Скорость</button>
+                                                    <button class="v-menu-item v-menu-quality" type="button"><i class="material-icons">high_quality</i> Качество</button>
+                                                    <button class="v-menu-item v-menu-download" type="button"><i class="material-icons">file_download</i> Скачать</button>
+                                                    <button class="v-menu-item v-menu-share" type="button"><i class="material-icons">share</i> Поделиться</button>
+                                                </div>
+                                            </div>
+                                            <button class="v-btn v-fs-btn" type="button" title="На весь экран"><i class="material-icons">fullscreen</i></button>
+                                        </div>
+                                    </div>
+                                ` : ''}
                                 ${parsedContent}
-                                ${attachmentsHtml}
                             </div>
-                            <div class="card-footer-bar">${ratingModuleHtml}</div>
                         </div>`;
                 } else if (sectionId === "music") {
                     html += `
-                        <div class="card media-card media-card-stable card-appear" data-id="${id}" data-score="${score}" data-author="${safeAuthor}" data-title="${safeTitle}" onclick="openPostPage('${sectionId}', '${id}')">
+                        <div class="card media-card media-card-stable" data-id="${id}">
                             <h3 class="media-title-center i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
-                            <div class="card-meta">
-                                ${authorSlot}
-                                ${dateSlot}
-                                ${timeSlot}
-                            </div>
                             <div class="scroll-content" style="width: 100%;">
-                                ${safeMediaUrl ? createAudioPlayerHTML(safeMediaUrl) : ''}
+                                ${safeMediaUrl ? `
+                                    <div class="custom-audio-player">
+                                        <audio src="${safeMediaUrl}" preload="metadata"></audio>
+                                        <button class="play-btn" type="button"><i class="material-icons">play_arrow</i></button>
+                                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                                        <span class="time-display">00:00 / 00:00</span>
+                                        <button class="volume-btn" type="button"><i class="material-icons">volume_up</i></button>
+                                    </div>
+                                ` : ''}
                                 ${parsedContent}
-                                ${attachmentsHtml}
                             </div>
-                            <div class="card-footer-bar">${ratingModuleHtml}</div>
-                        </div>`;
-                } else if (sectionId === "books") {
-                    html += `
-                        <div class="card media-card-stable card-appear" data-id="${id}" data-score="${score}" data-author="${safeAuthor}" data-title="${safeTitle}" onclick="openPostPage('${sectionId}', '${id}')">
-                            <h3 class="i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
-                            <div class="card-meta">
-                                ${authorSlot}
-                                ${dateSlot}
-                                ${timeSlot}
-                            </div>
-                            <div class="scroll-content">
-                                ${safeMediaUrl ? `<img src="${safeMediaUrl}" class="inline-post-img" style="max-height:220px; margin-bottom:15px;">` : ''}
-                                ${parsedContent}
-                                ${safeFileUrl ? `<a href="${safeFileUrl}" target="_blank" class="btn-book" onclick="event.stopPropagation()">Скачать книгу</a>` : ''}
-                                ${attachmentsHtml}
-                            </div>
-                            <div class="card-footer-bar">${ratingModuleHtml}</div>
                         </div>`;
                 } else {
-                    // Для постов и статей обложка теперь первая в .scroll-content
                     html += `
-                        <div class="card media-card-stable card-appear" data-id="${id}" data-score="${score}" data-author="${safeAuthor}" data-title="${safeTitle}" onclick="openPostPage('${sectionId}', '${id}')">
+                        <div class="card media-card-stable" data-id="${id}">
                             <h3 class="i18n-translatability" data-original="${safeTitle}">${safeTitle}</h3>
-                            <div class="card-meta">
-                                ${authorSlot}
-                                ${dateSlot}
-                                ${timeSlot}
-                            </div>
-                            <div class="scroll-content">
-                                ${safeMediaUrl ? `<img src="${safeMediaUrl}" class="inline-post-img" style="max-height:220px; margin-bottom:15px;">` : ''}
-                                ${parsedContent}
-                                ${attachmentsHtml}
-                            </div>
-                            <div class="card-footer-bar">${ratingModuleHtml}</div>
+                            <div class="scroll-content">${parsedContent}</div>
+                            ${sectionId === "books" && safeMediaUrl ? `<a href="${safeMediaUrl}" target="_blank" class="btn i18n-translatability" style="margin-top:15px;">Скачать / Читать</a>` : ''}
                         </div>`;
                 }
             });
+
             container.innerHTML = html;
-            if (sectionId === "music") container.querySelectorAll('.card').forEach(card => window.initCustomAudioPlayer(card));
-            else if (sectionId === "video") container.querySelectorAll('.card').forEach(card => window.initCustomVideoPlayer(card));
+
+            if (sectionId === "music") {
+                container.querySelectorAll('.card').forEach(card => window.initCustomAudioPlayer(card));
+            } else if (sectionId === "video") {
+                container.querySelectorAll('.card').forEach(card => window.initCustomVideoPlayer(card));
+            }
+
             if (currentLang !== 'ru') applyLanguage(currentLang);
         }
+
+        window.showSection = async function(sectionId) {
+            currentSectionId = sectionId;
+
+            document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+            const activeLink = document.querySelector(`nav a[onclick*="${sectionId}"]`);
+            if (activeLink) activeLink.classList.add('active');
+
+            document.getElementById('about-container').style.display = 'none';
+            const container = document.getElementById('dynamic-content-container');
+            const filterBar = document.getElementById('filter-controls-bar');
+            container.style.display = 'none';
+            currentDocsCache = [];
+
+            if (sectionId === 'about') {
+                const titleEl = document.getElementById('section-page-title');
+                titleEl.innerText = "О канале";
+                titleEl.setAttribute('data-original', "О канале");
+                document.getElementById('about-container').style.display = 'block';
+                filterBar.style.display = 'none';
+                if (currentLang !== 'ru') applyLanguage(currentLang);
+                return;
+            }
+
+            filterBar.style.display = 'flex';
+            container.style.display = 'grid';
+            
+            let titleText = "";
+            if (sectionId === "posts") titleText = "Последние Посты";
+            if (sectionId === "photo") titleText = "Фотогалерея";
+            if (sectionId === "video") titleText = "Видеоархив";
+            if (sectionId === "music") titleText = "Музыкальный архив";
+            if (sectionId === "books") titleText = "Библиотека";
+
+            const titleEl = document.getElementById('section-page-title');
+            titleEl.innerText = titleText;
+            titleEl.setAttribute('data-original', titleText);
+
+            if (sectionCache.has(sectionId)) {
+                currentDocsCache = sectionCache.get(sectionId);
+                updateYearSelectOptions(currentDocsCache);
+                renderFilteredCards();
+                return;
+            }
+
+            const update = showProgressUI("Загрузка публикаций...");
+            container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1;"><p style="text-align:center; color:#888;">Загрузка данных...</p></div>`;
+
+            try {
+                const q = query(collection(db, sectionId), orderBy("createdAt", "desc"));
+                update(40);
+                const querySnapshot = await getDocs(q);
+                update(80);
+
+                currentDocsCache = [];
+                querySnapshot.forEach((docSnap) => {
+                    currentDocsCache.push({ id: docSnap.id, ...docSnap.data() });
+                });
+
+                sectionCache.set(sectionId, currentDocsCache);
+                updateYearSelectOptions(currentDocsCache);
+                renderFilteredCards();
+                update(100);
+            } catch (err) {
+                console.error("Load error:", err);
+                container.innerHTML = `<div class="card media-card-stable" style="grid-column: 1 / -1; text-align:center;"><p style="color:#ff3333;">Ошибка загрузки данных.</p><button class="btn" onclick="showSection('${sectionId}')">Повторить</button></div>`;
+            } finally {
+                hideProgressUI();
+            }
+        };
 
         window.registerView = async function(collectionName, docId) {
             const key = `${collectionName}_${docId}`;
@@ -1258,296 +939,104 @@
         window.addEventListener('DOMContentLoaded', () => {
             initAboutText();
             initDynamicQuotes();
-            const sections = ['posts', 'articles', 'photo', 'video', 'music', 'books'];
-            sections.forEach(id => loadSectionData(id));
-            switchTab('posts');
-            initCosmicBackground();
-
-            const pathParts = window.location.pathname.split('/').filter(Boolean);
-            if (pathParts.length >= 2) {
-                const col = pathParts[0];
-                const id = pathParts[1];
-                if (['posts', 'articles', 'photo', 'video', 'music', 'books'].includes(col)) {
-                    openPostPage(col, id);
-                }
-            } else {
-                const urlParams = new URLSearchParams(window.location.search);
-                const id = urlParams.get('id');
-                const col = urlParams.get('collection');
-                if (id && col) {
-                    openPostPage(col, id);
-                }
-            }
+            showSection('about');
         });
-
-        function initCosmicBackground() {
-            const canvas = document.getElementById('space-canvas');
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d', { alpha: false });
-            let width = canvas.width = window.innerWidth;
-            let height = canvas.height = window.innerHeight;
-            window.addEventListener('resize', () => { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; });
-            const stars = [];
-            const numStars = 70;
-            for (let i = 0; i < numStars; i++) {
-                stars.push({ x: Math.random() * width, y: Math.random() * height, size: Math.random() * 2 + 1, alpha: Math.random(), speed: Math.random() * 0.01 + 0.003 });
-            }
-            function draw() {
-                ctx.fillStyle = '#0D0D11';
-                ctx.fillRect(0, 0, width, height);
-                stars.forEach(s => {
-                    s.alpha += s.speed;
-                    if (s.alpha > 1 || s.alpha < 0) s.speed = -s.speed;
-                    ctx.save();
-                    ctx.fillStyle = `rgba(255, 208, 0, ${Math.abs(s.alpha)})`;
-                    ctx.beginPath();
-                    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
-                });
-                requestAnimationFrame(draw);
-            }
-            draw();
-        }
     </script>
 
     <style>
-        :root {
-            --bg-dark: #0a0a0c;
-            --poster-yellow: #FFD000;
-            --poster-black: #111115;
-            --poster-red: #D61C1C;
-            --surface-card: rgba(20, 20, 25, 0.85);
-            --border-poster: #FFD000;
-            --text-main: #FFFFFF;
-            --text-muted: #A4A4B5;
-            --google-plus-green: #00E676;
-            --google-minus-red: #FF1744;
-            --card-border: #222222;
-        }
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent !important; outline: none; }
-        html { scroll-behavior: smooth; }
-        body {
-            background-color: var(--bg-dark);
-            color: var(--text-main);
-            font-family: 'Montserrat', sans-serif;
-            line-height: 1.5;
-            overflow-x: hidden;
-            min-height: 100vh;
-        }
-        #space-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; will-change: transform; }
+        body { background-color: #121214; color: #ffffff; font-family: 'Arial', sans-serif; line-height: 1.5; overflow-x: hidden; }
         
-        header.orbit-header {
-            position: fixed; top: 0; left: 0; width: 100%; height: 64px;
-            background: rgba(10, 10, 12, 0.85); backdrop-filter: blur(12px);
-            border-bottom: 1px solid #222;
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0 16px; z-index: 1000; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); gap: 10px;
-        }
-        .header-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex-shrink: 1; }
-        .icon-menu-btn {
-            background: transparent; border: 1px solid #333; color: var(--text-main); cursor: pointer;
-            display: flex; align-items: center; justify-content: center; width: 36px; height: 36px;
-            border-radius: 6px; flex-shrink: 0; transition: all 0.2s;
-        }
-        .icon-menu-btn:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); }
-        .brand-logo { display: flex; align-items: center; gap: 8px; text-decoration: none; cursor: pointer; min-width: 0; }
-        .brand-logo-img { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
-        .brand-title {
-            font-family: 'Russo One', sans-serif; font-size: 1.25rem; color: var(--poster-yellow);
-            letter-spacing: 1px; text-transform: uppercase; text-shadow: 2px 2px 0px #000;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .header-right { display: flex; align-items: center; flex-shrink: 0; }
-        .header-profile-btn {
-            display: flex; align-items: center; gap: 6px; background: transparent;
-            border: 1px solid #333; color: var(--text-main); padding: 6px 12px; border-radius: 6px;
-            font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 0.8rem; cursor: pointer;
-            text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.2s; white-space: nowrap;
-        }
-        .header-profile-btn:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); }
+        header { background-color: #121214; padding: 40px 20px 20px 20px; text-align: center; position: relative; z-index: 10; }
+        .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 500px; margin: 0 auto; }
+        .logo-img { max-width: 160px; height: auto; display: block; margin-bottom: 15px; }
+        .logo h1 { font-family: 'Montserrat', sans-serif; font-size: 4.2rem; font-weight: 900; letter-spacing: -1px; color: #EBEBEB; text-transform: uppercase; line-height: 1; text-shadow: 4px 4px 0px #dd0000; margin-bottom: 30px; }
+        .description { font-size: 1.05rem; font-weight: bold; color: #a0a0a5; line-height: 1.5; text-align: center; margin-bottom: 35px; padding: 0 10px; }
+        .quote-box { font-size: 0.95rem; color: #8a8a8f; margin-bottom: 40px; font-style: italic; padding: 0 15px; min-height: 40px; }
 
-        .sidebar-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);
-            z-index: 1050; opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
-        }
-        .sidebar-overlay.active { opacity: 1; pointer-events: auto; }
-        .sidebar {
-            position: fixed; top: 0; left: -320px; width: 300px; height: 100vh;
-            background: #121214; border-right: 1px solid #222;
-            z-index: 1100; display: flex; flex-direction: column; transition: left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-        .sidebar.open { left: 0; }
-        .sidebar-header {
-            height: 64px; display: flex; align-items: center; padding: 0 20px;
-            border-bottom: 1px solid #222;
-        }
-        .sidebar-header .brand-title { color: var(--poster-yellow); text-shadow: none; }
-        .sidebar-menu-list { padding: 20px 12px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; flex-grow: 1; }
-        .sidebar-nav-item {
-            display: flex; align-items: center; gap: 14px; padding: 12px 16px; color: var(--text-muted);
-            text-decoration: none; font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 0.95rem; border-radius: 6px;
-            cursor: pointer; transition: all 0.2s ease; letter-spacing: 0.5px;
-        }
-        .sidebar-nav-item .material-icons-round { font-size: 20px; color: var(--text-muted); transition: color 0.2s; }
-        .sidebar-nav-item:hover { background: rgba(255, 208, 0, 0.1); color: var(--poster-yellow); }
-        .sidebar-nav-item:hover .material-icons-round { color: var(--poster-yellow); }
-        .sidebar-divider { height: 1px; background: #222; margin: 12px 0; }
-        .lang-switch-box { display: inline-flex; align-items: center; background: #18181c; border: 1px solid #333; border-radius: 20px; padding: 3px; position: relative; }
-        .lang-btn { background: transparent; border: none; color: var(--text-muted); padding: 6px 14px; font-family: 'Russo One', sans-serif; font-size: 0.85rem; border-radius: 16px; cursor: pointer; transition: all 0.2s ease; }
-        .lang-btn.active { background: var(--poster-yellow); color: var(--poster-black); }
-        .lang-more-btn { background: transparent; color: var(--text-muted); border: none; padding: 6px 14px; border-radius: 16px; cursor: pointer; font-family: 'Russo One', sans-serif; font-size: 0.85rem; }
-        .lang-more-btn:hover { color: var(--text-main); }
-        .lang-modal {
-            display: none; position: absolute; top: 110%; left: 0; background: #121214;
-            border: 1px solid #333; border-radius: 12px; padding: 10px;
-            z-index: 1200; width: 100%; max-height: 250px; overflow-y: auto; flex-direction: column; gap: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.9);
-        }
-        .lang-modal .lang-btn { width: 100%; text-align: center; background: #18181c; border: 1px solid #333; }
+        nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; width: 100%; max-width: 750px; margin: 0 auto 20px auto; }
+        nav a { color: #ffffff; text-decoration: none; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px; padding: 15px 0; background-color: #1a1a1c; border: 1px solid #2d2d30; text-align: center; transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); cursor: pointer; }
+        nav a:hover, nav a.active { background-color: #dd0000; border-color: #dd0000; color: #000000; font-weight: bold; }
 
-        .main-wrapper { position: relative; z-index: 10; margin-top: 64px; padding: 40px 20px 60px 20px; max-width: 1240px; margin-left: auto; margin-right: auto; }
-        .quote-banner {
-            background: #121214; border: 1px solid #222; border-radius: 8px;
-            padding: 24px; margin-bottom: 40px; text-align: center; font-style: italic;
-            color: var(--text-muted); font-size: 1.05rem; line-height: 1.6;
-        }
+        .red-bar { width: 100%; height: 5px; background-color: #dd0000; position: relative; z-index: 10; }
 
-        .top-nav-tabs {
-            display: flex; gap: 8px; margin-bottom: 30px; overflow-x: auto; padding-bottom: 15px;
-            border-bottom: 1px solid #222;
-        }
-        .top-nav-tabs::-webkit-scrollbar { height: 4px; }
-        .top-nav-tabs::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
-        .nav-tab-btn {
-            background: transparent; border: none; color: var(--text-muted);
-            padding: 8px 16px; border-radius: 6px; font-family: 'Montserrat', sans-serif;
-            font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap; transition: all 0.2s; text-transform: uppercase;
-        }
-        .nav-tab-btn:hover { color: var(--poster-yellow); background: rgba(255, 208, 0, 0.05); }
-        .nav-tab-btn.active { color: var(--poster-yellow); border-bottom: 2px solid var(--poster-yellow); border-radius: 6px 6px 0 0; background: rgba(255, 208, 0, 0.05); }
+        .main-content-wrapper { position: relative; width: 100%; background-color: #0f0f11; overflow: hidden; }
+        .animated-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.12; }
+        .bg-grid { width: 200%; height: 200%; position: absolute; top: -50%; left: -50%; background-image: url('https://i.ibb.co/mCdNQXFF/2749-20260614142242.png'); background-size: 65px 65px; background-repeat: repeat; animation: moveDiag 12s linear infinite; }
+        @keyframes moveDiag { 0% { transform: translate(0, 0); } 100% { transform: translate(-65px, 65px); } }
 
-        .main-section { display: none; }
-        .main-section.active-anim { animation: fadeIn 0.4s ease-out; }
-        .section-block { margin-bottom: 60px; scroll-margin-top: 80px; }
-        .section-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
-        .section-title {
-            font-family: 'Russo One', sans-serif; font-size: 2rem; color: var(--poster-yellow);
-            text-transform: uppercase; letter-spacing: 1px;
-            display: inline-block; margin-bottom: 0;
-        }
-        
-        .search-row {
-            display: flex; align-items: center; gap: 10px; margin-bottom: 20px; width: 100%;
-        }
-        .search-input-wrapper {
-            flex-grow: 1; position: relative;
-        }
-        .author-search-input {
-            width: 100%; background: #121214; border: 1px solid #333; color: #fff; padding: 12px 16px 12px 40px;
-            border-radius: 6px; font-family: 'Montserrat', sans-serif; font-size: 0.9rem;
-            outline: none; transition: border-color 0.2s;
-        }
-        .author-search-input:focus { border-color: var(--poster-yellow); }
-        .search-icon {
-            position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-            color: #555; pointer-events: none;
-        }
-        .filter-btn {
-            background: #121214; border: 1px solid #333; color: var(--text-muted);
-            width: 44px; height: 44px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; flex-shrink: 0; transition: all 0.2s;
-        }
-        .filter-btn:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); }
+        .container { position: relative; z-index: 5; max-width: 1200px; margin: 0 auto; padding: 50px 20px; min-height: 500px; }
 
-        .about-box { background: var(--surface-card); border: 1px solid #222; border-radius: 8px; padding: 35px; }
-        .about-box p { font-size: 1.1rem; color: #E0E0EC; margin-bottom: 20px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+        .translation-progress-box { display: none; background: rgba(26, 26, 28, 0.95); border: 1px solid #dd0000; padding: 12px 18px; margin-bottom: 25px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5); }
+        .translation-status-info { display: flex; justify-content: space-between; align-items: center; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; color: #ffffff; margin-bottom: 8px; text-transform: uppercase; }
+        .translation-bar-track { width: 100%; height: 6px; background: #2d2d30; overflow: hidden; position: relative; }
+        .translation-bar-fill { height: 100%; width: 0%; background: #dd0000; transition: width 0.15s ease-out; }
 
-        .grid-display { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 25px; align-items: start; }
+        .section-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 20px; flex-wrap: wrap; }
+        .section-title { font-family: 'Montserrat', sans-serif; font-size: 2.2rem; text-transform: uppercase; border-left: 6px solid #dd0000; padding-left: 15px; letter-spacing: 1px; margin-bottom: 0; line-height: 1.2; word-break: break-word; }
 
-        .card {
-            background: var(--surface-card); border: 1px solid var(--card-border); 
-            border-radius: 12px; padding: 24px; display: flex; flex-direction: column; position: relative; 
-            transition: border-color 0.3s, transform 0.2s, box-shadow 0.3s;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            cursor: pointer;
-            text-decoration: none;
-            color: inherit;
-            min-width: 0;
+        /* ИСПРАВЛЕННЫЙ КОМПАКТНЫЙ ПОИСК */
+        .filter-controls-bar { display: none; flex-wrap: wrap; align-items: center; gap: 15px; background: #1a1a1c; border: 1px solid #2d2d30; padding: 12px 18px; margin-bottom: 30px; }
+        .search-box { display: flex; align-items: center; background: #121214; border: 1px solid #dd0000; padding: 0 10px; height: 35px; width: 100%; max-width: 260px; }
+        .search-box .material-icons { color: #dd0000; font-size: 18px; margin-right: 6px; flex-shrink: 0; }
+        .search-input { background: transparent; border: none; color: #fff; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; width: 100%; height: 100%; outline: none; }
+        .filter-group { display: flex; align-items: center; gap: 8px; }
+        .filter-label { font-family: 'Montserrat', sans-serif; font-size: 0.8rem; font-weight: bold; color: #8a8a8f; text-transform: uppercase; }
+        .filter-select { background: #121214; color: #ffffff; border: 1px solid #dd0000; padding: 8px 12px; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; outline: none; cursor: pointer; height: 35px; }
+        .filter-select option { background: #121214; color: #ffffff; }
+
+        .lang-switch-box { display: flex; background: #1a1a1c; border: 1px solid #2d2d30; padding: 2px; flex-shrink: 0; position: relative; }
+        .lang-btn { background: transparent; border: none; color: #8a8a8f; padding: 8px 12px; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: all 0.2s ease; }
+        .lang-btn.active { background: #dd0000; color: #000000; }
+        .lang-btn:disabled { opacity: 0.5; cursor: wait; }
+        .lang-more-btn { background: #2d2d30; color: #fff; border: none; padding: 8px 12px; cursor: pointer; font-weight: bold; }
+        .lang-modal { display: none; position: absolute; top: 100%; right: 0; background: #121214; border: 1px solid #dd0000; padding: 12px; z-index: 100; width: min(320px, 88vw); max-height: 70vh; overflow-y: auto; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
+        .lang-modal .lang-btn { flex: 1 1 calc(50% - 8px); min-width: 110px; text-align: center; background: #1a1a1c; border: 1px solid #2d2d30; }
+        .lang-modal-title { width: 100%; font-size: 0.75rem; color: #dd0000; font-weight: bold; text-transform: uppercase; font-family: 'Montserrat', sans-serif; border-bottom: 1px solid #2d2d30; padding-bottom: 4px; }
+
+        .translating-pulse { opacity: 0.6; animation: pulseText 1.2s infinite ease-in-out; font-style: italic; }
+        @keyframes pulseText { 0% { opacity: 0.3; } 50% { opacity: 0.8; } 100% { opacity: 0.3; } }
+
+        .grid-display { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; align-items: start; }
+
+        .media-card-stable { 
+            opacity: 1 !important; transform: none !important; animation: none !important;
+            background: rgba(26, 26, 28, 0.92); border: 1px solid #2d2d30; padding: 25px;
+            max-height: 520px; min-height: 280px; display: flex; flex-direction: column; position: relative;
+            transition: border-color 0.3s;
         }
-        .card-appear { animation: slideUp 0.5s ease-out; }
-        .card:hover { border-color: #444; transform: translateY(-2px); }
-        
-        .card.highlighted {
-            border-color: var(--poster-yellow) !important;
-            box-shadow: 0 0 15px rgba(255, 208, 0, 0.2);
-        }
-        
-        .card h3 { font-family: 'Russo One', sans-serif; font-size: 1.25rem; text-transform: uppercase; margin-bottom: 12px; color: var(--poster-yellow); overflow-wrap: anywhere; word-break: break-word; line-height: 1.3; }
-        
-        .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
-        
-        .card-author { font-family: 'Montserrat', sans-serif; font-size: 0.85rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; font-weight: 600; }
-        .card-author.empty { display: none; }
-        .card-author::before { content: 'person'; font-family: 'Material Icons Round'; font-size: 14px; color: var(--text-muted); }
-        
-        .card-date { font-family: 'Montserrat', sans-serif; font-size: 0.8rem; color: #666; display: flex; align-items: center; gap: 4px; }
-        .card-date .material-icons-round { font-size: 14px; }
+        .media-card-stable:hover { border-color: #dd0000; }
+        .media-card-stable h3 { font-family: 'Montserrat', sans-serif; font-size: 1.3rem; text-transform: uppercase; margin-bottom: 15px; color: #dd0000; flex-shrink: 0; word-break: break-word; }
 
-        .scroll-content { max-height: 400px; overflow-y: auto; flex-grow: 1; padding-right: 6px; margin-bottom: 15px; width: 100%; }
+        .scroll-content { overflow-y: auto; flex-grow: 1; padding-right: 8px; margin-bottom: 5px; }
         .scroll-content::-webkit-scrollbar { width: 6px; }
-        .scroll-content::-webkit-scrollbar-track { background: transparent; }
+        .scroll-content::-webkit-scrollbar-track { background: #121214; }
         .scroll-content::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-        .scroll-content::-webkit-scrollbar-thumb:hover { background: var(--poster-yellow); }
-        
-        .word-text {
-            font-size: 1rem;
-            color: #D0D0E0;
-            white-space: pre-wrap;
-            line-height: 1.6;
-            overflow-wrap: anywhere;
-            word-break: break-word;
-            max-width: 100%;
-        }
-        .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background: #050505; border: 1px solid #222; border-radius: 8px; margin: 12px 0; }
+        .scroll-content::-webkit-scrollbar-thumb:hover { background: #dd0000; }
 
-        .post-inline-link { color: var(--poster-yellow); text-decoration: underline; text-underline-offset: 3px; font-weight: 600; transition: opacity 0.2s; overflow-wrap: anywhere; word-break: break-all; }
-        .post-inline-link:hover { opacity: 0.8; }
+        .word-text { font-family: 'Times New Roman', Times, serif; font-size: 1.15rem; color: #e0e0e0; white-space: pre-wrap; line-height: 1.6; text-align: left; }
+        .post-inline-link { color: #dd0000; font-weight: bold; text-decoration: none; border-bottom: 1px dashed #dd0000; }
+        .post-inline-link:hover { color: #ff3333; border-bottom-style: solid; }
 
-        .attachments-list { display: flex; flex-direction: column; gap: 8px; margin-top: 15px; }
-        .attachment-link { display: inline-flex; align-items: center; gap: 8px; background: #121214; border: 1px solid #333; padding: 8px 14px; border-radius: 6px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: all 0.2s; }
-        .attachment-link:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); }
-        .attachment-link .material-icons-round { font-size: 16px; color: var(--poster-yellow); }
+        .about-box { background: rgba(21, 21, 23, 0.95); border: 1px solid #2d2d30; padding: 35px; border-left: 4px solid #dd0000; }
+        .about-box p { font-family: 'Times New Roman', Times, serif; font-size: 1.25rem; color: #bbb; margin-bottom: 20px; line-height: 1.7; text-align: left; white-space: pre-wrap; }
 
-        .btn-book { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: transparent; border: 1px solid var(--poster-yellow); color: var(--poster-yellow); text-decoration: none; font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 0.85rem; padding: 10px 16px; border-radius: 6px; margin-top: 10px; width: 100%; transition: all 0.2s; }
-        .btn-book:hover { background: var(--poster-yellow); color: #000; }
+        .media-card { display: flex; flex-direction: column; align-items: center; }
+        .media-title-center { text-align: center; width: 100%; margin-bottom: 15px !important; }
+        .inline-post-img { width: 100%; max-height: 280px; object-fit: contain; background-color: #121214; border: 1px solid #2d2d30; margin: 12px 0; display: block; }
 
-        .card-footer-bar { border-top: 1px solid #222; padding-top: 16px; margin-top: auto; width: 100%; }
-        .card-footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-        
-        .google-plus-rating { display: flex; align-items: center; background: #0a0a0c; border: 1px solid #222; border-radius: 20px; padding: 4px 8px; gap: 10px; }
-        .btn-vote { background: transparent; border: none; color: #555; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
-        .btn-vote:hover { background: #222; color: #fff; }
-        .btn-vote-plus.voted-plus { background: var(--google-plus-green); color: #000; }
-        .btn-vote-minus.voted-minus { background: var(--google-minus-red); color: #fff; }
-        .rating-score { font-family: 'Russo One', sans-serif; font-size: 0.95rem; min-width: 28px; text-align: center; }
-        .rating-score.positive { color: var(--google-plus-green); }
-        .rating-score.negative { color: var(--google-minus-red); }
-        .rating-score.neutral { color: var(--text-muted); }
-
-        .share-btn-small {
-            background: #121214; border: 1px solid #333; color: var(--text-muted);
-            width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: all 0.2s; flex-shrink: 0;
-        }
-        .share-btn-small:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); background: rgba(255, 208, 0, 0.05); }
-        .share-btn-small .material-icons-round { font-size: 18px; }
+        .custom-audio-player { display: flex; align-items: center; gap: 10px; background: #121214; border: 1px solid #dd0000; padding: 10px 14px; margin-bottom: 15px; width: 100%; }
+        .custom-audio-player audio { display: none; }
+        .custom-audio-player .play-btn, .custom-audio-player .volume-btn { background: #dd0000; border: none; color: #000000; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+        .custom-audio-player .play-btn:hover, .custom-audio-player .volume-btn:hover { background: #ff3333; }
+        .custom-audio-player .progress-bar { flex-grow: 1; height: 6px; background: #2d2d30; cursor: pointer; position: relative; }
+        .custom-audio-player .progress-fill { height: 100%; background: #dd0000; width: 0%; }
+        .custom-audio-player .time-display { font-family: 'Montserrat', sans-serif; font-size: 0.75rem; color: #a0a0a5; min-width: 85px; text-align: center; }
 
         .custom-video-player {
             width: 100%;
             background: #000000;
-            border: 1px solid #222;
-            border-radius: 10px;
+            border: 1px solid #dd0000;
             margin-bottom: 15px;
             display: flex;
             flex-direction: column;
@@ -1555,20 +1044,19 @@
             transform: translateZ(0);
             will-change: transform;
             user-select: none;
-            overflow: hidden;
         }
+
         .custom-video-player:fullscreen,
         .custom-video-player:-webkit-full-screen {
             width: 100vw !important;
             height: 100vh !important;
             border: none;
-            border-radius: 0;
             background: #000;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            overflow: visible;
         }
+
         .v-wrapper {
             position: relative;
             width: 100%;
@@ -1577,12 +1065,14 @@
             overflow: hidden;
             cursor: pointer;
         }
+
         .custom-video-player:fullscreen .v-wrapper,
         .custom-video-player:-webkit-full-screen .v-wrapper {
             flex-grow: 1;
             padding-top: 0;
-            height: calc(100vh - 56px);
+            height: calc(100vh - 50px);
         }
+
         .v-wrapper video {
             position: absolute;
             top: 0;
@@ -1591,38 +1081,45 @@
             height: 100%;
             object-fit: contain;
             display: block;
+            cursor: pointer;
             background: #000;
         }
+
         .v-overlay {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.35);
+            background: rgba(0,0,0,0.25);
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 4;
             transition: opacity 0.25s ease;
         }
-        .custom-video-player.is-playing .v-overlay { opacity: 0; pointer-events: none; }
+
+        .custom-video-player.is-playing .v-overlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+
         .v-play-center {
-            background: var(--poster-yellow);
+            background: #dd0000;
             border: none;
-            color: #000;
-            width: 56px;
-            height: 56px;
+            color: #000000;
+            width: 54px;
+            height: 54px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(255, 208, 0, 0.4);
-            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.2s;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.15s;
         }
-        .v-play-center:hover { transform: scale(1.1); background: #ffe033; }
-        .v-play-center .material-icons-round { font-size: 34px; }
+
+        .v-play-center:hover { transform: scale(1.12); background: #ff3333; }
+        .v-play-center .material-icons { font-size: 34px; }
 
         .v-gesture-speed {
             display: none;
@@ -1630,34 +1127,39 @@
             top: 15px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.85);
-            border: 1px solid var(--poster-yellow);
+            background: rgba(0,0,0,0.75);
+            border: 1px solid #dd0000;
             color: #fff;
             padding: 6px 16px;
             border-radius: 20px;
-            font-family: 'Russo One', sans-serif;
+            font-family: 'Montserrat', sans-serif;
             font-size: 0.9rem;
+            font-weight: bold;
             z-index: 10;
             align-items: center;
             gap: 6px;
         }
+
         .v-gesture-seek {
             display: none;
             position: absolute;
             top: 0;
             width: 40%;
             height: 100%;
-            background: rgba(255, 208, 0, 0.15);
+            background: rgba(221,0,0,0.15);
             color: #fff;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             z-index: 9;
-            font-family: 'Russo One', sans-serif;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: bold;
             font-size: 0.85rem;
         }
+
         .v-gesture-seek-left { left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
         .v-gesture-seek-right { right: 0; border-radius: 100% 0 0 100% / 50% 0 0 50%; }
+
         .animate-seek { animation: seekPulse 0.5s ease-out; }
         @keyframes seekPulse {
             0% { opacity: 0; transform: scale(0.8); }
@@ -1670,493 +1172,270 @@
             align-items: center;
             gap: 8px;
             background: #121214;
-            padding: 8px 12px;
-            border-top: 1px solid #222;
+            padding: 8px 10px;
+            border-top: 1px solid #2d2d30;
             z-index: 6;
         }
+
         .custom-video-player:fullscreen .v-controls,
         .custom-video-player:-webkit-full-screen .v-controls {
             background: rgba(18, 18, 20, 0.95);
             padding: 12px 16px;
-            border-top: 1px solid #333;
+            border-top: 1px solid #dd0000;
         }
+
         .v-btn {
-            background: transparent;
+            background: #dd0000;
             border: none;
-            color: #fff;
+            color: #000000;
             width: 34px;
             height: 34px;
-            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
+            transition: background-color 0.2s, transform 0.15s;
             flex-shrink: 0;
-            transition: background 0.15s, color 0.15s;
         }
-        .v-btn:hover { background: rgba(255, 208, 0, 0.15); color: var(--poster-yellow); }
-        .v-play-btn { background: var(--poster-yellow); color: #000; width: 34px; height: 34px; border-radius: 50%; }
-        .v-play-btn:hover { background: #ffe033; color: #000; }
+
+        .v-btn:hover { background: #ff3333; transform: scale(1.05); }
+        .v-btn:active { transform: scale(0.95); }
+        .v-btn .material-icons { font-size: 20px; }
+
         .v-progress-bar {
             flex-grow: 1;
-            height: 8px;
-            background: #333;
-            border-radius: 4px;
+            height: 6px;
+            background: #2d2d30;
             cursor: pointer;
             position: relative;
-            overflow: hidden;
             min-width: 40px;
         }
-        .v-progress-fill { height: 100%; background: var(--poster-yellow); width: 0%; border-radius: 4px; }
+
+        .v-progress-fill { height: 100%; background: #dd0000; width: 0%; transition: width 0.1s linear; }
+
         .v-time-display {
+            font-family: 'Montserrat', sans-serif;
             font-size: 0.75rem;
-            font-weight: 600;
-            color: var(--text-muted);
-            min-width: 78px;
+            color: #a0a0a5;
+            min-width: 80px;
             text-align: center;
             flex-shrink: 0;
         }
+
         .v-more-menu {
             display: none;
             position: absolute;
             bottom: 100%;
             right: 0;
-            background: #121214;
-            border: 1px solid #333;
-            margin-bottom: 8px;
+            background: #1a1a1c;
+            border: 1px solid #dd0000;
+            margin-bottom: 5px;
             z-index: 20;
             flex-direction: column;
-            min-width: 180px;
-            box-shadow: 0px 8px 20px rgba(0,0,0,0.9);
-            border-radius: 6px;
-            overflow: hidden;
+            min-width: 170px;
+            box-shadow: 0px 4px 12px rgba(0,0,0,0.9);
+            animation: fadeIn 0.15s ease-out;
         }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         .v-more-menu.open { display: flex; }
+
         .v-menu-item {
             background: transparent;
             border: none;
             color: #ffffff;
-            padding: 11px 16px;
+            padding: 10px 14px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             font-family: 'Montserrat', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 600;
+            font-size: 0.8rem;
+            font-weight: bold;
             cursor: pointer;
             text-align: left;
-            transition: background 0.15s, color 0.15s;
+            transition: background-color 0.2s;
         }
-        .v-menu-item:hover { background: var(--poster-yellow); color: #000; }
 
-        .custom-audio-player {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            background: #121214;
-            border: 1px solid #222;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 15px;
-            width: 100%;
-            user-select: none;
-        }
-        .custom-audio-player audio { display: none; }
-        .custom-audio-player .play-btn { background: var(--poster-yellow); border: none; color: #000; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
-        .custom-audio-player .progress-bar { flex-grow: 1; height: 8px; background: #333; border-radius: 4px; cursor: pointer; position: relative; overflow: hidden; }
-        .custom-audio-player .progress-fill { height: 100%; background: var(--poster-yellow); width: 0%; border-radius: 4px; }
-        .custom-audio-player .time-display { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); min-width: 80px; text-align: center; flex-shrink: 0; }
+        .v-menu-item:hover { background: #dd0000; color: #000000; }
+        .v-menu-item .material-icons { font-size: 18px; }
 
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 2000; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
-        .modal-card { background: #121214; border: 1px solid #333; padding: 30px; max-width: 420px; width: 100%; text-align: center; border-radius: 12px; position: relative; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
-        .modal-card h4 { font-family: 'Russo One', sans-serif; color: var(--poster-yellow); font-size: 1.2rem; text-transform: uppercase; margin-bottom: 20px; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
+        .modal-card { background: #1a1a1c; border: 1px solid #dd0000; padding: 25px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        .modal-card h4 { font-family: 'Montserrat', sans-serif; color: #dd0000; font-size: 1.1rem; text-transform: uppercase; margin-bottom: 15px; }
+        .modal-card p { font-size: 0.9rem; color: #a0a0a5; margin-bottom: 20px; }
+        .modal-buttons { display: flex; flex-direction: column; gap: 10px; }
+
         .selector-options-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
-        .selector-option-btn { background: #18181c; border: 1px solid #333; color: #fff; padding: 10px; font-family: 'Montserrat', sans-serif; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
-        .selector-option-btn.active, .selector-option-btn:hover { background: var(--poster-yellow); color: #000; border-color: var(--poster-yellow); }
-        
-        .filter-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-        .filter-option-btn { background: #18181c; border: 1px solid #333; color: #fff; padding: 12px; font-family: 'Montserrat', sans-serif; font-weight: 600; border-radius: 6px; cursor: pointer; text-align: left; transition: all 0.2s; display: flex; align-items: center; gap: 10px; }
-        .filter-option-btn:hover { border-color: #555; }
-        .filter-option-btn.active { background: rgba(255, 208, 0, 0.1); color: var(--poster-yellow); border-color: var(--poster-yellow); }
+        .selector-option-btn { background: #121214; border: 1px solid #2d2d30; color: #fff; padding: 10px; font-family: 'Montserrat', sans-serif; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        .selector-option-btn.active, .selector-option-btn:hover { background: #dd0000; border-color: #dd0000; color: #000; }
 
-        .auth-input-group { margin-bottom: 16px; text-align: left; }
-        .auth-input-group label { display: block; font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; }
-        .auth-input { width: 100%; background: #0a0a0c; border: 1px solid #333; padding: 12px 14px; color: #fff; border-radius: 6px; font-family: 'Montserrat', sans-serif; font-size: 0.95rem; transition: border-color 0.2s; }
-        .auth-input:focus { border-color: var(--poster-yellow); }
-        .auth-divider { display: flex; align-items: center; margin: 20px 0; color: #555; font-size: 0.8rem; font-family: 'Montserrat', sans-serif; font-weight: 600; }
-        .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: #222; }
-        .auth-divider span { padding: 0 12px; }
-        .social-auth-btn { width: 100%; padding: 12px; border-radius: 6px; font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 0.85rem; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 12px; transition: opacity 0.2s; }
-        .social-auth-btn:hover { opacity: 0.9; }
-        .btn-google { background: #ffffff; color: #000; }
-        .btn-apple { background: #000000; color: #fff; border: 1px solid #333; }
-        .auth-toggle-box { margin-top: 20px; font-size: 0.85rem; color: var(--text-muted); }
-        .auth-toggle-box button { background: none; border: none; color: var(--poster-yellow); font-family: 'Montserrat', sans-serif; font-weight: 600; cursor: pointer; text-decoration: underline; margin-left: 5px; }
-        
-        .btn { display: inline-block; padding: 12px 20px; background: var(--poster-yellow); color: #000; text-decoration: none; text-transform: uppercase; font-family: 'Russo One', sans-serif; font-weight: bold; font-size: 0.85rem; border-radius: 6px; border: none; cursor: pointer; width: 100%; text-align: center; transition: background 0.2s; }
-        .btn:hover { background: #ffe033; }
-        .btn-secondary { background: #222; color: #FFF; }
-        .btn-secondary:hover { background: #333; }
+        .btn { display: inline-block; padding: 10px 20px; background-color: #dd0000; color: #000000; text-decoration: none; text-transform: uppercase; font-weight: bold; font-size: 0.9rem; border: none; cursor: pointer; text-align: center; transition: background 0.2s; }
+        .btn:hover { background-color: #ff1a1a; }
+        .btn-secondary { background: #2d2d30; color: #ffffff; }
+        .btn-secondary:hover { background: #44444c; }
 
-        .footer-links-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; max-width: 900px; margin: 0 auto 30px auto; text-align: left; }
-        .footer-link-card { background: #121214; border: 1px solid #222; padding: 12px 16px; border-radius: 8px; text-decoration: none; color: #E0E0E0; font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; }
-        .footer-link-card:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); background: #18181c; }
-        .footer-link-card .material-icons-round { font-size: 18px; color: #555; transition: color 0.2s; }
-        .footer-link-card:hover .material-icons-round { color: var(--poster-yellow); }
-        
-        footer { background: #050505; border-top: 1px solid #222; padding: 40px 20px; text-align: center; position: relative; z-index: 10; }
+        footer { background-color: #121214; border-top: 1px solid #2d2d30; padding: 40px 25px; position: relative; z-index: 10; }
+        .tg-links-container { max-width: 500px; margin: 0 auto 35px auto; display: flex; flex-direction: column; gap: 18px; }
+        .tg-link-row { display: flex; align-items: center; gap: 15px; }
+        .tg-link-row .material-icons { color: #dd0000; font-size: 24px; flex-shrink: 0; }
+        .tg-text-block { display: flex; flex-direction: column; text-align: left; }
+        .tg-label { color: #ffffff; font-size: 0.95rem; font-weight: bold; font-family: 'Montserrat', sans-serif; margin-bottom: 2px; }
+        .tg-url { color: #dd0000; text-decoration: none; font-size: 1.1rem; font-weight: 900; font-family: 'Montserrat', sans-serif; }
+        .tg-url:hover { text-decoration: underline; }
 
-        /* Страница поста */
-        #post-page {
-            display: none; position: relative; z-index: 10;
-            margin-top: 64px; padding: 40px 20px 60px 20px;
-            max-width: 900px; margin-left: auto; margin-right: auto;
-        }
-        .post-page-container { display: flex; flex-direction: column; gap: 20px; }
-        .post-page-container.slide-up { animation: slideUp 0.5s ease-out; }
-        .back-btn {
-            background: #121214; border: 1px solid #333; color: var(--text-muted);
-            padding: 10px 16px; border-radius: 6px; font-family: 'Montserrat', sans-serif;
-            font-weight: 600; font-size: 0.9rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
-            align-self: flex-start; transition: all 0.2s;
-        }
-        .back-btn:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); }
-        .post-page-card {
-            background: var(--surface-card); border: 1px solid #222; border-radius: 12px;
-            padding: 30px; display: flex; flex-direction: column; min-width: 0;
-        }
-        .post-page-title {
-            font-family: 'Russo One', sans-serif; font-size: 2.2rem; text-transform: uppercase;
-            color: var(--poster-yellow); margin-bottom: 20px; line-height: 1.2;
-            overflow-wrap: anywhere; word-break: break-word;
-        }
-        .post-page-meta {
-            display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 30px; padding-bottom: 20px;
-            border-bottom: 1px solid #222;
-        }
-        .post-page-content {
-            font-size: 1.1rem; line-height: 1.8; color: #D0D0E0; margin-bottom: 30px;
-            overflow-wrap: anywhere; word-break: break-word; max-width: 100%;
-        }
-        .post-page-content .custom-video-player,
-        .post-page-content .custom-audio-player {
-            margin-bottom: 20px;
-        }
-        .post-page-footer {
-            display: flex; justify-content: space-between; align-items: center;
-            border-top: 1px solid #222; padding-top: 20px; margin-top: auto; flex-wrap: wrap; gap: 15px;
-        }
-        .share-btn {
-            background: #121214; border: 1px solid #333; color: var(--text-muted);
-            padding: 8px 16px; border-radius: 6px; font-family: 'Montserrat', sans-serif;
-            font-weight: 600; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
-            transition: all 0.2s;
-        }
-        .share-btn:hover { border-color: var(--poster-yellow); color: var(--poster-yellow); }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .loader-container {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            padding: 50px; color: var(--text-muted); gap: 15px;
-        }
-        .loader {
-            width: 40px; height: 40px; border: 3px solid #333; border-top-color: var(--poster-yellow);
-            border-radius: 50%; animation: spin 1s linear infinite;
-        }
-
-        .toast {
-            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(100px);
-            background: var(--poster-yellow); color: #000; padding: 12px 24px;
-            border-radius: 8px; font-family: 'Montserrat', sans-serif; font-weight: 600;
-            font-size: 0.9rem; z-index: 9999; opacity: 0; transition: all 0.3s ease;
-            pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        }
-        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .new-disclaimer { font-family: 'Montserrat', sans-serif; font-size: 1.15rem; color: #dd0000; max-width: 750px; margin: 0 auto 25px auto; line-height: 1.6; text-align: left; text-indent: 40px; }
+        .disclaimer-title { font-size: 1.3rem; font-weight: 900; display: block; margin-bottom: 5px; }
+        .copyright-text { text-align: center; color: #444; font-size: 0.85rem; text-transform: uppercase; font-weight: bold; margin-top: 20px; display: block; }
 
         @media (max-width: 768px) {
-            .main-wrapper { padding: 20px 12px 40px 12px; }
-            .grid-display { grid-template-columns: 1fr; }
-            .about-box { padding: 20px; }
-            .card { padding: 18px; }
+            .section-header-row { flex-direction: column; align-items: flex-start; gap: 15px; }
             .section-title { font-size: 1.6rem; }
-            .footer-links-grid { grid-template-columns: 1fr; }
-            .search-row { flex-wrap: wrap; }
-            .search-input-wrapper { flex-basis: 100%; }
-            .filter-btn { width: 100%; }
-            .post-page-card { padding: 20px; }
-            .post-page-title { font-size: 1.6rem; }
-            #post-page { padding: 20px 12px 40px 12px; }
+            .filter-controls-bar { flex-direction: column; align-items: stretch; }
+            .search-box { max-width: 100%; }
+            .filter-group { flex-direction: column; align-items: flex-start; }
+            .filter-select { width: 100%; }
+            .lang-switch-box { align-self: flex-start; }
+            .lang-modal { right: auto; left: 0; }
+            .container { padding: 30px 15px; }
+            .grid-display { grid-template-columns: 1fr; }
+            .logo h1 { font-size: 3rem; }
+            nav { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 480px) {
+            header { padding: 25px 15px 15px 15px; }
+            .logo h1 { font-size: 2.5rem; }
+            .section-title { font-size: 1.35rem; }
+            nav a { font-size: 0.8rem; padding: 12px 0; }
+            .about-box { padding: 20px; }
+            .about-box p { font-size: 1.05rem; }
+            .card { padding: 18px; }
         }
     </style>
 </head>
 <body>
 
-<canvas id="space-canvas"></canvas>
+<header>
+    <div class="logo-container">
+        <img class="logo-img" src="https://i.ibb.co/WvfPwwL4/2748-20260614014830.png" alt="Логотип ССБА">
+        <div class="logo"><h1>ССБА</h1></div>
+        <p class="description i18n-translatability">Сайт ССБА — публикации и архивные материалы. Актуальные статьи, хроника классовой борьбы, видеоархив антифашистского сопротивления. Историко-публицистический ресурс.</p>
+        <div class="quote-box i18n-translatability" id="quote-container">«Загрузка цитаты...» — Автор</div>
+    </div>
 
-<header class="orbit-header">
-    <div class="header-left">
-        <button class="icon-menu-btn" onclick="toggleSidebar()" title="Меню сайта">
-            <i class="material-icons-round">menu</i>
-        </button>
-        <div class="brand-logo" onclick="switchTab('posts')">
-            <img class="brand-logo-img" src="https://i.ibb.co/sdwwQJcF/IMG-20261102-232112-037.png" alt="Логотип" onerror="this.style.display='none'">
-            <span class="brand-title">ОРБИТА</span>
-        </div>
-    </div>
-    <div class="header-right">
-        <button class="header-profile-btn" onclick="openAuthModal()">
-            <i class="material-icons-round">account_circle</i>
-            <span id="header-profile-text">Войти</span>
-        </button>
-    </div>
+    <nav>
+        <a onclick="showSection('about')" class="i18n-translatability">О канале</a>
+        <a onclick="showSection('posts')" class="i18n-translatability">Посты</a>
+        <a onclick="showSection('photo')" class="i18n-translatability">Фото</a>
+        <a onclick="showSection('video')" class="i18n-translatability">Видео</a>
+        <a onclick="showSection('music')" class="i18n-translatability">Музыка</a>
+        <a onclick="showSection('books')" class="i18n-translatability">Книги</a>
+    </nav>
 </header>
 
-<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
-<aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-        <div class="brand-logo" onclick="closeSidebar()">
-            <img class="brand-logo-img" src="https://i.ibb.co/sdwwQJcF/IMG-20261102-232112-037.png" alt="Логотип" onerror="this.style.display='none'">
-            <span class="brand-title">МЕНЮ САЙТА</span>
+<div class="red-bar"></div>
+
+<div class="main-content-wrapper">
+    <div class="animated-bg"><div class="bg-grid"></div></div>
+
+    <div class="container">
+        <div class="translation-progress-box" id="progress-bar-container">
+            <div class="translation-status-info">
+                <span id="progress-bar-label">Загрузка...</span>
+                <span id="progress-bar-percent">0%</span>
+            </div>
+            <div class="translation-bar-track">
+                <div class="translation-bar-fill" id="progress-bar-fill"></div>
+            </div>
         </div>
-    </div>
-    <div class="sidebar-menu-list">
-        <a class="sidebar-nav-item" onclick="switchTab('about')"><i class="material-icons-round">info</i><span>О нас</span></a>
-        <a class="sidebar-nav-item" onclick="switchTab('posts')"><i class="material-icons-round">article</i><span>Посты</span></a>
-        <a class="sidebar-nav-item" onclick="switchTab('articles')"><i class="material-icons-round">description</i><span>Статьи</span></a>
-        <a class="sidebar-nav-item" onclick="switchTab('photo')"><i class="material-icons-round">photo_library</i><span>Фотогалерея</span></a>
-        <a class="sidebar-nav-item" onclick="switchTab('video')"><i class="material-icons-round">play_circle_filled</i><span>Видеоархив</span></a>
-        <a class="sidebar-nav-item" onclick="switchTab('music')"><i class="material-icons-round">audiotrack</i><span>Музыка</span></a>
-        <a class="sidebar-nav-item" onclick="switchTab('books')"><i class="material-icons-round">menu_book</i><span>Библиотека</span></a>
-        <div class="sidebar-divider"></div>
-        <div style="padding: 10px 12px; position: relative;">
-            <div style="font-family:'Montserrat', sans-serif; font-weight: 600; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase;">Язык интерфейса:</div>
+
+        <div class="section-header-row">
+            <h2 class="section-title i18n-translatability" id="section-page-title">О канале</h2>
             <div class="lang-switch-box">
                 <button class="lang-btn active" data-lang="ru" onclick="switchLanguage('ru')">RU</button>
                 <button class="lang-btn" data-lang="en" onclick="switchLanguage('en')">EN</button>
                 <button class="lang-more-btn" onclick="toggleLangModal()">+ Ещё</button>
+
                 <div class="lang-modal" id="lang-modal">
+                    <span class="lang-modal-title">Популярные</span>
                     <button class="lang-btn" data-lang="de" onclick="switchLanguage('de')">DE</button>
                     <button class="lang-btn" data-lang="fr" onclick="switchLanguage('fr')">FR</button>
                     <button class="lang-btn" data-lang="es" onclick="switchLanguage('es')">ES</button>
+                    <span class="lang-modal-title">СНГ</span>
                     <button class="lang-btn" data-lang="uk" onclick="switchLanguage('uk')">UK</button>
                     <button class="lang-btn" data-lang="be" onclick="switchLanguage('be')">BE</button>
                     <button class="lang-btn" data-lang="kk" onclick="switchLanguage('kk')">KK</button>
+                    <button class="lang-btn" data-lang="uz" onclick="switchLanguage('uz')">UZ</button>
                 </div>
             </div>
         </div>
-    </div>
-</aside>
 
-<main class="main-wrapper">
-    <div class="quote-banner i18n-translatability" id="quote-container">«Загрузка цитаты...»</div>
-
-    <div class="top-nav-tabs">
-        <button class="nav-tab-btn active" data-tab="posts" onclick="switchTab('posts')">Посты</button>
-        <button class="nav-tab-btn" data-tab="articles" onclick="switchTab('articles')">Статьи</button>
-        <button class="nav-tab-btn" data-tab="photo" onclick="switchTab('photo')">Фотогалерея</button>
-        <button class="nav-tab-btn" data-tab="video" onclick="switchTab('video')">Видеоархив</button>
-        <button class="nav-tab-btn" data-tab="music" onclick="switchTab('music')">Музыка</button>
-        <button class="nav-tab-btn" data-tab="books" onclick="switchTab('books')">Библиотека</button>
-    </div>
-
-    <div id="progress-bar-container" style="display:none; background:#121214; border:1px solid #222; border-radius:8px; padding:12px 18px; margin-bottom:25px;">
-        <div style="display:flex; justify-content:space-between; font-family:'Montserrat', sans-serif; font-weight:600; font-size:0.85rem; color:var(--poster-yellow); margin-bottom:6px;">
-            <span id="progress-bar-label">Перевод...</span>
-            <span id="progress-bar-percent">0%</span>
+        <div class="filter-controls-bar" id="filter-controls-bar">
+            <div class="search-box">
+                <i class="material-icons">search</i>
+                <input type="text" class="search-input" placeholder="Поиск..." oninput="handleSearchInput(this.value)">
+            </div>
+            <div class="filter-group">
+                <span class="filter-label i18n-translatability">Сортировка:</span>
+                <select class="filter-select" id="sort-order-select" onchange="handleSortChange(this.value)">
+                    <option value="desc">Сначала новые</option>
+                    <option value="asc">Сначала старые</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label i18n-translatability">Год:</span>
+                <select class="filter-select" id="filter-year-select" onchange="handleYearFilterChange(this.value)">
+                    <option value="all">Все года</option>
+                </select>
+            </div>
         </div>
-        <div style="width:100%; height:6px; background:#333; border-radius:3px; overflow:hidden;">
-            <div id="progress-bar-fill" style="height:100%; width:0%; background:var(--poster-yellow);"></div>
-        </div>
-    </div>
 
-    <section id="section-about" class="main-section section-block" data-section="about">
-        <div class="section-header-row"><h2 class="section-title">О НАС</h2></div>
         <div id="about-container" class="about-box">
-            <p class="i18n-translatability" data-original="Информация пока не добавлена.">Информация пока не добавлена.</p>
+            <p class="i18n-translatability">Загрузка информации о канале...</p>
         </div>
-    </section>
 
-    <!-- Секция: Посты -->
-    <section id="section-posts" class="main-section section-block" data-section="posts">
-        <div class="section-header-row">
-            <h2 class="section-title">ПОСТЫ</h2>
-        </div>
-        <div class="search-row">
-            <div class="search-input-wrapper">
-                <i class="material-icons-round search-icon">search</i>
-                <input type="text" id="search-input-posts" class="author-search-input" placeholder="Поиск..." oninput="applySearchAndFilter('posts')">
-            </div>
-            <button class="filter-btn" onclick="openFilterModal()" title="Фильтры">
-                <i class="material-icons-round">tune</i>
-            </button>
-        </div>
-        <div id="container-posts" class="grid-display">
-            <div class="card media-card-stable"><p style="text-align:center; color:#888;">Загрузка...</p></div>
-        </div>
-    </section>
-
-    <!-- Секция: Статьи -->
-    <section id="section-articles" class="main-section section-block" data-section="articles">
-        <div class="section-header-row">
-            <h2 class="section-title">СТАТЬИ</h2>
-        </div>
-        <div class="search-row">
-            <div class="search-input-wrapper">
-                <i class="material-icons-round search-icon">search</i>
-                <input type="text" id="search-input-articles" class="author-search-input" placeholder="Поиск..." oninput="applySearchAndFilter('articles')">
-            </div>
-            <button class="filter-btn" onclick="openFilterModal()" title="Фильтры">
-                <i class="material-icons-round">tune</i>
-            </button>
-        </div>
-        <div id="container-articles" class="grid-display">
-            <div class="card media-card-stable"><p style="text-align:center; color:#888;">Загрузка...</p></div>
-        </div>
-    </section>
-
-    <!-- Секция: Фотогалерея -->
-    <section id="section-photo" class="main-section section-block" data-section="photo">
-        <div class="section-header-row"><h2 class="section-title">ФОТОГАЛЕРЕЯ</h2></div>
-        <div class="search-row">
-            <div class="search-input-wrapper">
-                <i class="material-icons-round search-icon">search</i>
-                <input type="text" id="search-input-photo" class="author-search-input" placeholder="Поиск..." oninput="applySearchAndFilter('photo')">
-            </div>
-            <button class="filter-btn" onclick="openFilterModal()" title="Фильтры">
-                <i class="material-icons-round">tune</i>
-            </button>
-        </div>
-        <div id="container-photo" class="grid-display">
-            <div class="card media-card-stable"><p style="text-align:center; color:#888;">Загрузка...</p></div>
-        </div>
-    </section>
-
-    <!-- Секция: Видеоархив -->
-    <section id="section-video" class="main-section section-block" data-section="video">
-        <div class="section-header-row"><h2 class="section-title">ВИДЕОАРХИВ</h2></div>
-        <div class="search-row">
-            <div class="search-input-wrapper">
-                <i class="material-icons-round search-icon">search</i>
-                <input type="text" id="search-input-video" class="author-search-input" placeholder="Поиск..." oninput="applySearchAndFilter('video')">
-            </div>
-            <button class="filter-btn" onclick="openFilterModal()" title="Фильтры">
-                <i class="material-icons-round">tune</i>
-            </button>
-        </div>
-        <div id="container-video" class="grid-display">
-            <div class="card media-card-stable"><p style="text-align:center; color:#888;">Загрузка...</p></div>
-        </div>
-    </section>
-
-    <!-- Секция: Музыка -->
-    <section id="section-music" class="main-section section-block" data-section="music">
-        <div class="section-header-row"><h2 class="section-title">МУЗЫКАЛЬНЫЙ АРХИВ</h2></div>
-        <div class="search-row">
-            <div class="search-input-wrapper">
-                <i class="material-icons-round search-icon">search</i>
-                <input type="text" id="search-input-music" class="author-search-input" placeholder="Поиск..." oninput="applySearchAndFilter('music')">
-            </div>
-            <button class="filter-btn" onclick="openFilterModal()" title="Фильтры">
-                <i class="material-icons-round">tune</i>
-            </button>
-        </div>
-        <div id="container-music" class="grid-display">
-            <div class="card media-card-stable"><p style="text-align:center; color:#888;">Загрузка...</p></div>
-        </div>
-    </section>
-
-    <!-- Секция: Библиотека -->
-    <section id="section-books" class="main-section section-block" data-section="books">
-        <div class="section-header-row"><h2 class="section-title">БИБЛИОТЕКА</h2></div>
-        <div class="search-row">
-            <div class="search-input-wrapper">
-                <i class="material-icons-round search-icon">search</i>
-                <input type="text" id="search-input-books" class="author-search-input" placeholder="Поиск..." oninput="applySearchAndFilter('books')">
-            </div>
-            <button class="filter-btn" onclick="openFilterModal()" title="Фильтры">
-                <i class="material-icons-round">tune</i>
-            </button>
-        </div>
-        <div id="container-books" class="grid-display">
-            <div class="card media-card-stable"><p style="text-align:center; color:#888;">Загрузка...</p></div>
-        </div>
-    </section>
-</main>
-
-<div id="post-page"></div>
-
-<!-- Модальное окно Входа / Регистрации -->
-<div class="modal-overlay" id="auth-modal">
-    <div class="modal-card">
-        <button onclick="closeAuthModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; color: #666; cursor: pointer;"><i class="material-icons-round">close</i></button>
-        <h4 id="auth-modal-title">Регистрация</h4>
-        <form onsubmit="handleEmailAuth(event)">
-            <div class="auth-input-group"><label for="auth-email">Электронная почта</label><input type="email" id="auth-email" class="auth-input" placeholder="example@orbit.org" required></div>
-            <div class="auth-input-group"><label for="auth-password">Пароль</label><input type="password" id="auth-password" class="auth-input" placeholder="••••••••" required></div>
-            <button type="submit" id="auth-submit-btn" class="btn">Зарегистрироваться</button>
-        </form>
-        <div class="auth-divider"><span>ИЛИ</span></div>
-        <button type="button" class="social-auth-btn btn-google" onclick="handleGoogleAuth()"><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18" height="18" alt="Google"> Продолжить через Google</button>
-        <button type="button" class="social-auth-btn btn-apple" onclick="handleAppleAuth()"><i class="material-icons-round" style="font-size:20px;">apple</i> Продолжить через Apple</button>
-        <div class="auth-toggle-box"><span id="auth-toggle-text">Уже есть аккаунт?</span><button type="button" id="auth-toggle-link" onclick="toggleAuthMode()">Войти</button></div>
+        <div id="dynamic-content-container" class="grid-display" style="display: none;"></div>
     </div>
 </div>
 
-<!-- Модальное окно фильтров -->
-<div class="modal-overlay" id="filter-modal">
-    <div class="modal-card">
-        <h4>Фильтры поиска</h4>
-        <div class="filter-options">
-            <button class="filter-option-btn active" data-filter="all" onclick="setFilter('all')"><i class="material-icons-round">search</i> Везде</button>
-            <button class="filter-option-btn" data-filter="title" onclick="setFilter('title')"><i class="material-icons-round">title</i> По названию</button>
-            <button class="filter-option-btn" data-filter="author" onclick="setFilter('author')"><i class="material-icons-round">person</i> По автору</button>
-        </div>
-        <button class="btn btn-secondary" onclick="closeFilterModal()">ЗАКРЫТЬ</button>
-    </div>
-</div>
-
-<!-- Модальное окно качества / скорости -->
 <div class="modal-overlay" id="selector-modal">
     <div class="modal-card">
         <h4 id="selector-modal-title">Параметр</h4>
         <div class="selector-options-grid" id="selector-options-container"></div>
-        <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="modal-buttons">
             <button class="btn" onclick="closeSelectorModal(true)">Готово</button>
-            <button class="btn btn-secondary" onclick="closeSelectorModal(false)">Отмена</button>
+            <button class="btn btn-secondary" onclick="closeSelectorModal(false)" style="margin-top: 5px;">Отмена</button>
         </div>
     </div>
 </div>
 
-<footer>
-    <h3 style="font-family:'Russo One', sans-serif; color:var(--text-main); font-size:1.2rem; margin-bottom:20px; text-transform:uppercase; letter-spacing: 1px;">Официальные ресурсы</h3>
-    <div class="footer-links-grid">
-        <a href="https://t.me/Literature_82636" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Библиотека</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://boosty.to/verdict1917" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Boosty</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://t.me/socialist_realism" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Соцреализм</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://t.me/Orbit_1917" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Основной Telegram</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="http://t.me/LetsAskBot?start=OXprMu" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Связь с владельцем</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://www.tiktok.com/@orbit_1917?_r=1&_t=ZS-9BDF0hcCMNB" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>TikTok</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://t.me/+a04FVCMgyS1kMWNi" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Основной чат</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://t.me/orbit1917" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Переходник</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://telegra.ph/PROGRAMMA-MLPR-11-07" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Программа МЛПР</span><i class="material-icons-round">open_in_new</i></a>
-        <a href="https://t.me/+3duTW6pB01wyYTky" target="_blank" class="footer-link-card" rel="noopener noreferrer"><span>Вступить к нам</span><i class="material-icons-round">open_in_new</i></a>
-    </div>
-    <div style="color: #555; font-family: 'Montserrat', sans-serif; font-size: 0.8rem; margin-top: 20px;">
-        &copy; 2026 ORBIT PLATFORM. ВСЕ ПРАВА ЗАЩИЩЕНЫ.
-    </div>
-</footer>
+<div class="red-bar"></div>
 
+<footer>
+    <div class="tg-links-container">
+        <div class="tg-link-row">
+            <i class="material-icons">link</i>
+            <div class="tg-text-block">
+                <span class="tg-label i18n-translatability">Канал:</span>
+                <a href="https://t.me/Stalinhead" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead</a>
+            </div>
+        </div>
+        <div class="tg-link-row">
+            <i class="material-icons">group_add</i>
+            <div class="tg-text-block">
+                <span class="tg-label i18n-translatability">Вступить:</span>
+                <a href="https://t.me/Stalinhead?direct" target="_blank" class="tg-url" rel="noopener noreferrer">https://t.me/Stalinhead?direct</a>
+            </div>
+        </div>
+    </div>
+    <div class="new-disclaimer">
+        <span class="disclaimer-title i18n-translatability">ДИСКЛЕЙМЕР:</span>
+        <span class="disclaimer-body i18n-translatability">Материалы сайта носят историко-архивный и публицистический характер. 18+</span>
+    </div>
+    <span class="copyright-text i18n-translatability">&copy; 2026 ССБА. Все права защищены.</span>
+</footer>
 </body>
 </html>
